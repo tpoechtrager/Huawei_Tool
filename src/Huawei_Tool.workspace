@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CodeLite_Workspace Name="Huawei_Tool" Database="" Version="10.0.0">
+  <Project Name="Huawei_Tool" Path="Huawei_Tool.project" Active="Yes"/>
+  <BuildMatrix>
+    <WorkspaceConfiguration Name="Release" Selected="yes">
+      <Environment/>
+      <Project Name="Huawei_Tool" ConfigName="Release"/>
+      <Project Name="Huawei_Tool" ConfigName="Release"/>
+    </WorkspaceConfiguration>
+  </BuildMatrix>
+</CodeLite_Workspace>

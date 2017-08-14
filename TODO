@@ -1,0 +1,12 @@
+v0.2:
+* --relay-post-data
+* --bandstr-from-lte-band-bitmask
+
+v0.3:
+* TCP AT CLI
+* TTY Proxy
+* --show-bandwidth | --show-traffic | --bandwidth-monitor
+
+v0.4:
+* --ping-workaround
+* Log signal strength into an SQL database.

@@ -1,0 +1,8 @@
+## Router IP Address or Host ##
+router_ip = "192.168.8.1";
+
+## Router Username (usually admin) ##
+router_user = "admin";
+
+## Router Password ##
+router_pass = "admin";
