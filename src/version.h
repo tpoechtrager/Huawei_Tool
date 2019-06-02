@@ -17,5 +17,5 @@
  **************************************************************************/
 
 #define TOOLNAME "Huawei Band Tool"
-#define CODENAME "Capra Grigia"
-#define VERSION "0.1.1"
+#define CODENAME "Meow, I am a cat! Edition"
+#define VERSION "0.2.0-Alpha"

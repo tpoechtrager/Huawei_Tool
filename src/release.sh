@@ -37,7 +37,7 @@ function convert_shell_to_batch()
     in=$(echo $in   | sed 's/#!\/bin\/sh//')
     out=$(echo $in  | sed 's/\.\///g')
     out=$(echo $out | sed 's/\.sh/.bat/g')
-    out=$(echo $out | sed 's/sleep/TIMEOUT/g')
+    out=$(echo $out | sed 's/sleep/PING 192.0.2.2 -n 1 -w/g')
     out=$(echo $out | sed 's/echo ""/echo[/g')
     out=$(echo $out | sed "s/ && /\\n/g")
     code_out=""
@@ -48,9 +48,13 @@ function convert_shell_to_batch()
     IFS=$'\n'
     for line in $out; do
       line=$(trim_line $line)
-      [[ $line != ${TOOLNAME}\ * ]] && code_out="${code_out}@echo off"$'\n'
+      if [[ $line != ${TOOLNAME}\ * ]]; then
+        code_out="${code_out}@echo off"$'\n'
+      fi
       code_out="${code_out}${line}"
-      [[ $line == TIMEOUT\ * ]] && code_out="${code_out} >NUL"
+      if [[ $line == PING\ 192.0.2.2\ -n\ 1\ -w\ * ]]; then
+        code_out="${code_out}000 >NUL"
+      fi
       code_out="${code_out}"$'\n'
       [[ $line == ${TOOLNAME}\ * ]] && code_out="${code_out}@echo off"$'\n'
       code_out="${code_out}if %errorlevel% neq 0 (EXIT %errorlevel%)"$'\n'
@@ -75,6 +79,9 @@ function build()
   else
     cp ${TOOLNAME} ${RELEASEDIR}/$2
     cp ../*.sh ${RELEASEDIR}/$2
+    if [[ $1 == android* ]]; then
+      sed -i'' 's/#!\/bin\/sh//' ${RELEASEDIR}/$2/*.sh
+    fi
   fi
   cp ../${TOOLNAME}_config.txt ${RELEASEDIR}/$2
   if [ -f ${TOOLNAME}.exe ]; then
@@ -91,18 +98,18 @@ function build()
 rm -rf $(ls -d ${RELEASEDIR}/*/)
 rm -rf ${RELEASEDIR}/{*.zip,*.bz2}
 
-build linux_x86_64 Linux_x86_64
-build linux_i686 Linux_i686
-build openwrt_mips_musl OpenWRT/MIPS_musl_static
-build openwrt_mips_uclibc OpenWRT/MIPS_uclibc
-build macos_x86_64 MacOS_x86_64
-build ios iOS
-build win32 Windows
+build linux_armv5 Linux/armv5
+build android_armv7 Android/armv7
+build linux_x86_64 Linux/64bit
+build linux_i686 Linux/32bit
+build openwrt_mips_musl OpenWRT/MIPS/32bit/big_endian/musl_static
+build openwrt_mips_uclibc OpenWRT/MIPS/32bit/big_endian/uclibc
+build macos_x86_64 MacOS/64bit
+build ios iOS/armv7_armv7s_arm64
+build win32 Windows/32bit
+build win64 Windows/64bit
 
 unix2dos ${RELEASEDIR}/*.txt
-echo ""
-echo "TODO: SDL2_NET License"
-echo ""
 version=$(cat version.h | grep "define VERSION" | xargs | awk '{print $3}')
 
 pushd ${RELEASEDIR} &>/dev/null
@@ -119,3 +126,5 @@ echo ""
 echo "MD5:"
 md5sum ${TOOLNAME}_v${version}{.zip,.tar.bz2}
 popd &>/dev/null
+
+make clean 1>/dev/null

@@ -19,6 +19,12 @@
 #include "tools.h"
 #include "huawei_tools.h"
 
+#include <memory>
+#include <string>
+#include <vector>
+#include <map>
+#include <utility>
+
 namespace web {
 extern char routerIP[128];
 extern char routerUser[128];
@@ -30,7 +36,51 @@ HuaweiErrorCode logout();
 bool getAntennaType(AntennaType &type);
 bool setAntennaType(const AntennaType type);
 
+namespace wlan {
+
+struct Client;
+typedef std::vector<Client> ClientVec;
+typedef std::unique_ptr<ClientVec> uClientVec;
+
+struct Client
+{
+    std::string macAddress;
+    std::string ipAddress;
+    std::string hostName;
+    TimeType connectionDuration;
+    TimeType lastUpdate;
+    bool referenced;
+
+    TimeType getInterpolatedConnectionDuration() const
+    {
+        TimeType timeDiff = getElapsedTime(lastUpdate);
+        TimeType duration = (connectionDuration * oneSecond);
+        if (timeDiff > MAX_INTERPOLATION_MS) return duration;
+        return duration + timeDiff;
+    }
+
+    Client(std::string &macAddress, bool referenced = true) :
+        macAddress(std::move(macAddress)), referenced(referenced) {}
+};
+
+struct Clients
+{
+    uClientVec clients;
+    bool referenced;
+
+    Clients(uClientVec &&clients) :
+        clients(std::move(clients)), referenced(true) {}
+};
+
+extern std::map<std::string, Clients> ssids;
+
+bool updateClients();
+
+} // namespace wlan
+
 namespace cli {
+
+extern int trafficColumnSpacing;
 
 bool showAntennaType();
 bool setAntennaType(const char *antennaType);
@@ -39,11 +89,17 @@ bool setPlmn(const char *plmn, const char *plmnMode, const char *plmnRat);
 bool selectPlmn(bool select = false);
 bool showNetworkMode();
 bool setNetworkMode(const char *networkMode, const char *networkBand, const char *lteBand);
-bool relay(const char *request, bool loop, int loopDelay);
+bool relay(const char *request, const char *data, bool loop, int loopDelay);
 
 namespace experimental {
-bool showSignalStrength(bool noClearScreen);
+bool showSignalStrength();
 } // namespace experimental
+
+bool showWlanClients();
+bool showTraffic();
+
+bool connect(const int action = 1);
+bool disconnect();
 
 } // namespace cli
 

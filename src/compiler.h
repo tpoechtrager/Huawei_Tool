@@ -40,8 +40,21 @@
 
 #ifdef __GNUC__
 #define USED __attribute__((used))
+#define MAYBE_UNUSED __attribute__((unused))
+#define NORETURN __attribute__((noreturn))
 #else
 #define USED
+#define MAYBE_UNUSED
+#define PRINTFARGS(fmt, args)
+#define NOTRETURN
+#endif
+
+#ifdef __GNUC__
+#ifdef __clang__
+#define PRINTFARGS(fmt, args) __attribute__((format(printf, fmt, args)))
+#else
+#define PRINTFARGS(fmt, args) __attribute__((format(gnu_printf, fmt, args)))
+#endif
 #endif
 
 #endif // __COMPILER_H__

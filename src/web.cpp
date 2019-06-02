@@ -17,7 +17,7 @@
  **************************************************************************/
 
 #include "web.h"
-#include "atomic.h"
+#include "cli_tools.h"
 
 #include <map>
 #include <vector>
@@ -32,20 +32,15 @@
 #define USERAGENT "Huawei Tool/" VERSION " (\"" CODENAME "\")"
 
 #define err_http(result) \
-    errfun << result.errorstr << err.endl()
+    errfunf("%s", result.errorStr.c_str())
 
 #define err_huawei(result, description) \
-    errfun << description << ":" \
-           << huaweiErrStr(httpResult.huaweiErrCode) \
-           << err.endl()
+    errfunf("%s: %s", description, \
+            huaweiErrStr(httpResult.huaweiErrCode))
 
 #define err_huawei_code(errcode, description) \
-    errfun << description << ": " \
-           << huaweiErrStr(errcode) \
-           << err.endl()
-
-extern atomic<bool> shouldExit;
-extern atomic<bool> waitingForInput;
+    errfunf("%s: %s", description, \
+            huaweiErrStr(errcode).c_str())
 
 namespace web {
 char routerIP[128] = "";
@@ -54,6 +49,7 @@ char routerPass[128] = "";
 
 namespace {
 
+bool inited = false;
 int loggedIn = 0;
 std::map<std::string, std::string> cookies;
 bool csrfMethod2 = false;
@@ -66,7 +62,7 @@ struct HttpResult
     std::string xmlContent;
     rapidxml::xml_document<> xml;
     unsigned long responseCode;
-    std::string errorstr;
+    std::string errorStr;
     HuaweiErrorCode huaweiErrCode;
     std::string huaweiErrStr;
 
@@ -76,7 +72,7 @@ struct HttpResult
         contentType.clear();
         content.clear();
         xmlContent.clear();
-        responseCode = -1LU;
+        responseCode = 0;
         huaweiErrCode = HuaweiErrorCode::ERROR;
         huaweiErrStr = ::huaweiErrStr(HuaweiErrorCode::ERROR);
     }
@@ -108,15 +104,21 @@ void addOrUpdateCookie(const char *cookie)
     if (sscanf(cookie, "%*s   %*s   %*s       %*s   %*u       "
                        "%1023[^ |\t]       %4095s", name, value) == 2)
     {
-        if (cookies.find(name) == cookies.end()) dbglog << "New Cookie: ";
-        else dbglog << "Updating Cookie: ";
-        dbglog << "Name: " << name << " Value: " << value << dbg.endl();
+        if (cookies.find(name) == cookies.end())
+        {
+            dbg.linef("New Cookie: Name: %s Value: %s", name, value);
+        }
+        else
+        {
+            dbg.linef("Updating Cookie: Name: %s Value: %s", name, value);
+        }
+
         cookies[name] = cookie;
     }
     else
     {
-        dbglog << "Cookie: " << cookie << dbg.endl();
-        errfun << "Parsing cookie failed" << err.endl();
+        dbg.linef("Cookie: %s", cookie);
+        errfunf("Parsing cookie failed");
     }
 }
 
@@ -124,7 +126,7 @@ bool httpRequest(const char *request, HttpResult &result, const HttpOpts opts = 
 {
     if (request[0] != '/')
     {
-        errfun << "Request must begin with '/'" << err.endl();
+        errfunf("Request must begin with '/'");
         return false;
     }
 
@@ -135,9 +137,9 @@ bool httpRequest(const char *request, HttpResult &result, const HttpOpts opts = 
     std::string ref = "http://" + std::string(routerIP) + "/html/home.html";
     struct curl_slist *headers = nullptr;
 
-    dbglog << "### HTTP Request ###" << dbg.endl();
-    dbglog << "URL: " << req << dbg.endl();
-    dbglog << "Referrer: " << ref << dbg.endl();
+    dbg.linef("### HTTP Request ###");
+    dbg.linef("URL: %s", req.c_str());
+    dbg.linef("Referrer: %s", ref.c_str());
 
     auto callback = [](void *data, size_t size, size_t nmemb, std::string &content)
     {
@@ -170,14 +172,14 @@ bool httpRequest(const char *request, HttpResult &result, const HttpOpts opts = 
 
     for (const auto &cookie : cookies)
     {
-        dbglog << "Cookie: " << cookie.second << dbg.endl();
+        dbg.linef("Cookie: %s", cookie.second.c_str());
         setopt(CURLOPT_COOKIELIST, cookie.second.c_str());
     }
 
     if (!opts.csrfToken.empty())
     {
         std::string csrfToken = "__RequestVerificationToken: " + opts.csrfToken;
-        dbglog << csrfToken << dbg.endl();
+        dbg.linef("%s", csrfToken.c_str());
         headers = curl_slist_append(headers, csrfToken.c_str());
     }
 
@@ -190,19 +192,16 @@ bool httpRequest(const char *request, HttpResult &result, const HttpOpts opts = 
 
     if (!opts.data.empty())
     {
-        if (writeDebugLog)
-        {
-            dbglog << "------- POST Data -------" << dbg.endl();
-            dbglog << "\n" << opts.data << dbg.endl();
-            dbglog << "------- POST Data End -------" << dbg.endl();
-        }
+        dbg.linef("------- POST Data -------");
+        dbg.linef("\n%s", opts.data.c_str());
+        dbg.linef("------- POST Data End -------");
 
         setopt(CURLOPT_POSTFIELDS, opts.data.c_str());
 
         if (!opts.contentType.empty())
         {
             std::string contentType = "Content-Type: " + opts.contentType;
-            dbglog << contentType << dbg.endl();
+            dbg.linef("%s", contentType.c_str());
             headers = curl_slist_append(headers, contentType.c_str());
         }
     }
@@ -214,9 +213,9 @@ bool httpRequest(const char *request, HttpResult &result, const HttpOpts opts = 
     again:;
     bool ok = false;
 
-    dbglog << "Performing Request ..." << dbg.endl();
+    dbg.linef("Performing Request ...");
     CURLcode code = curl_easy_perform(curl);
-    dbglog << "... done" << dbg.endl();
+    dbg.linef("... done");
 
     if (code == CURLE_OK)
     {
@@ -247,28 +246,28 @@ bool httpRequest(const char *request, HttpResult &result, const HttpOpts opts = 
         if (contentType)
         {
             result.contentType = contentType;
-            dbglog << "Content Type: " << contentType << dbg.endl();
+            dbg.linef("Content Type: %s", contentType);
         }
 
         if (curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &result.responseCode) != CURLE_OK)
             abort();
 
-        dbglog << "Response code: " << result.responseCode << dbg.endl();
+        dbg.linef("Response code: %lu", result.responseCode);
 
         if (result.responseCode != 200)
         {
-            std::stringstream errorstr;
-            errorstr << "Response Code "<< result.responseCode << "!=200";
-            result.errorstr = errorstr.str();
+            std::stringstream errorStr;
+            errorStr << "Response Code " << result.responseCode << "!=200";
+            result.errorStr = errorStr.str();
             ok = false;
         }
     }
     else
     {
-        result.errorstr = curl_easy_strerror(code);
-        dbglog << "Error: " << result.errorstr << dbg.endl();
+        result.errorStr = curl_easy_strerror(code);
+        dbg.linef("Error: %s", result.errorStr.c_str());
 
-        if (!shouldExit)
+        if (!checkExit())
         {
             switch (code)
             {
@@ -280,9 +279,9 @@ bool httpRequest(const char *request, HttpResult &result, const HttpOpts opts = 
                 case CURLE_SEND_ERROR:
                 case CURLE_RECV_ERROR:
                 {
-                    errfun << result.errorstr << err.endl();
-                    delay(1000);
-                    goto again;
+                    errfunf("%s", result.errorStr.c_str());
+                    delay(3000);
+                    if (!checkExit()) goto again;
                 }
                 default:;
             }
@@ -292,7 +291,7 @@ bool httpRequest(const char *request, HttpResult &result, const HttpOpts opts = 
     if (headers) curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
 
-    if (writeDebugLog)
+    if (dbg.isEnabled())
     {
         std::string dbgContent = result.content;
         if (dbgContent.length() > 512) dbgContent.resize(512);
@@ -302,15 +301,15 @@ bool httpRequest(const char *request, HttpResult &result, const HttpOpts opts = 
                 dbgContent[dbgContent.length()-1] == '\n'))
             dbgContent.pop_back();
 
-        dbglog << "------- Content -------" << dbg.endl();
-        dbglog << "\n" << dbgContent << " [truncated to 512 characters]" << dbg.endl();
-        dbglog << "------- Content End -------" << dbg.endl();
+        dbg.linef("------- Content -------");
+        dbg.linef("\n%s [truncated to 512 characters]", dbgContent.c_str());
+        dbg.linef("------- Content End -------");
 
-        dbglog << "### HTTP Request End ###" << dbg.endl();
+        dbg.linef("### HTTP Request End ###");
 
         // Do not print an empty line if this is an XML request
         if (strcmp(opts.contentType.c_str(), "application/x-www-form-urlencoded"))
-            dbglog << dbg.endl();
+            dbg.linef(nullptr);
     }
 
     return ok;
@@ -320,7 +319,7 @@ static bool getCsrfToken(std::string &csrfToken);
 
 bool xmlHttpRequest(const char *request, HttpResult &result, HttpOpts &opts)
 {
-    dbglog << "### XML Request ###" << dbg.endl();
+    dbg.linef("### XML Request ###");
 
     bool ok = false;
     opts.contentType = "application/x-www-form-urlencoded";
@@ -352,7 +351,7 @@ bool xmlHttpRequest(const char *request, HttpResult &result, HttpOpts &opts)
     }
 #endif
 
-    dbglog << "Parsing XML" << dbg.endl();
+    dbg.linef("Parsing XML");
 
     try
     {
@@ -368,9 +367,10 @@ bool xmlHttpRequest(const char *request, HttpResult &result, HttpOpts &opts)
 
             if (!opts.data.empty() && strcmp(response->value(), "OK"))
             {
-                err << request << err.endl();
-                err << result.content << err.endl();
-                err << "Expected \"OK\" response value" << err.endl();
+                err.linef("%s", request);
+                err.linef("%s", result.content.c_str());
+                err.linef("Expected \"OK\" response value");
+
                 result.huaweiErrCode = HuaweiErrorCode::ERROR;
 
                 ok = false;
@@ -389,31 +389,26 @@ bool xmlHttpRequest(const char *request, HttpResult &result, HttpOpts &opts)
             {
                 result.huaweiErrCode = (HuaweiErrorCode)atoi(code->value());
                 result.huaweiErrStr = huaweiErrStr(result.huaweiErrCode);
-
-                dbglog << "Huawei error code: " << result.huaweiErrCode
-                       << " (" << result.huaweiErrStr << ")" << dbg.endl();
-
+                dbg.linef("Huawei error code: (%d)", result.huaweiErrCode);
                 ok = true;
             }
         }
     }
-    catch (...)
+    catch (rapidxml::parse_error &e)
     {
-        dbglog << "XML parsing failed" << dbglog.endl();
+        dbg.linef("XML parsing failed: %s", e.what());
         ok = false;
     }
 
     end:;
-    dbglog << "### XML Request End ###" << dbg.endl();
-    dbglog << dbg.endl();
+    dbg.linef("### XML Request End ###");
+    dbg.linef(nullptr);
 
     return ok;
 }
 
-rapidxml::xml_node<> *xmlHttpRequest(
-    const char *description, const char *request,
-    HttpResult &result, HttpOpts &opts
-)
+rapidxml::xml_node<> *
+xmlHttpRequest(const char *description, const char *request, HttpResult &result, HttpOpts &opts)
 {
     if (!xmlHttpRequest(request, result, opts))
     {
@@ -456,7 +451,7 @@ bool getCsrfToken(std::string &csrfToken)
     char line[4096];
     char token[4096];
 
-    while (getLine(str, line))
+    while (getLine(str, line, sizeof(line)))
     {
         if (sscanf(line, "%*s name=\"csrf_token\" content=\"%4095[^\"]\">", token) != 1)
             continue;
@@ -578,10 +573,7 @@ bool getAntennaType(AntennaType &type)
     );
 
     if (!response) return false;
-    auto *val = response->first_node("antennasettype");
-    if (!val) return false;
-
-    int tmp = atoi(val->value());
+    int tmp = getXMLNum(response, "antennasettype");
 
     if (tmp >= 0 && tmp <= 2)
     {
@@ -615,7 +607,150 @@ bool setAntennaType(const AntennaType type)
     return ok;
 }
 
+namespace wlan {
+
+std::map<std::string, Clients> ssids;
+
+bool updateClients()
+{
+    auto addOrUpdateSsid = [&](std::string ssid) -> ClientVec*
+    {
+        ClientVec *clients;
+        auto it = ssids.find(ssid);
+
+        if (it == ssids.end())
+        {
+            clients = new std::vector<Client>;
+            auto p = std::make_pair<>(std::move(ssid), Clients(uClientVec(clients)));
+            auto it = ssids.insert(std::move(p));
+            if (!it.second) return nullptr;
+        }
+        else
+        {
+            Clients &c = it->second;
+            c.referenced = true;
+            clients = c.clients.get();
+        }
+
+        return clients;
+    };
+
+    auto addOrUpdateClient = [&](ClientVec *clients, std::string macAddress)
+    {
+        for (auto &client : *clients)
+        {
+            if (client.macAddress == macAddress)
+            {
+                client.referenced = true;
+                return &client;
+            }
+        }
+
+        clients->push_back(macAddress);
+        return &clients->back();
+    };
+
+    auto markObjectsUnreferenced = [&]()
+    {
+        for (auto &it : ssids)
+        {
+            Clients &c = it.second;
+            c.referenced = false;
+            ClientVec *clients = c.clients.get();
+            for (auto &client : *clients) client.referenced = false;
+        }
+    };
+
+    auto removeUnreferencedObjects = [&]()
+    {
+        delete_next_ssid:;
+        for (auto it = ssids.begin(); it != ssids.end(); it++)
+        {
+            Clients &c = it->second;
+            if (!c.referenced)
+            {
+                ssids.erase(it);
+                goto delete_next_ssid;
+            }
+            ClientVec *clients = c.clients.get();
+            while (true)
+            {
+                delete_next_client:;
+                for (auto it = clients->begin(); it != clients->end(); it++)
+                {
+                    Client &client = *it;
+                    if (!client.referenced)
+                    {
+                        clients->erase(it);
+                        goto delete_next_client;
+                    }
+                }
+                break;
+            }
+        }
+    };
+
+    web::HttpResult httpResult;
+    web::HttpOpts httpOpts;
+
+    auto response = web::xmlHttpRequest(
+        "Getting WLAN Host List",
+        "/api/wlan/host-list",
+        httpResult,
+        httpOpts
+    );
+
+    if (!response) return false;
+    auto *hosts = response->first_node("Hosts");
+    if (!hosts) return false;
+    auto *host = hosts->first_node("Host");
+
+    markObjectsUnreferenced();
+
+    if (host)
+    {
+        updateTime();
+
+        do
+        {
+            std::vector<Client> *clients = addOrUpdateSsid(
+                getXMLStr(host, "AssociatedSsid")
+            );
+
+            if (!clients) return false;
+
+            Client *client = addOrUpdateClient(
+                clients,
+                getXMLStr(host, "MacAddress")
+            );
+
+            const char *ipAddress = getXMLStr(host, "IpAddress");
+            if (ipAddress == __XML_ERROR__) ipAddress = "?.?.?.?";
+            const char *hostName = getXMLStr(host, "HostName");
+            if (ipAddress == __XML_ERROR__) hostName = "??";
+
+            client->ipAddress = ipAddress;
+            client->hostName = hostName;
+            client->connectionDuration = getXMLNum(host, "AssociatedTime");
+            client->lastUpdate = now;
+        } while ((host = host->next_sibling("Host")));
+    }
+    else
+    {
+        // No clients connected.
+    }
+
+    removeUnreferencedObjects();
+
+    return true;
+}
+
+} // namespace wlan
+
 namespace cli {
+using namespace ::cli;
+
+int trafficColumnSpacing = 40;
 
 bool showAntennaType()
 {
@@ -624,7 +759,7 @@ bool showAntennaType()
     if (!web::getAntennaType(type))
         return false;
 
-    printf("Current Antenna Type: %s\n", getAntennaTypeStr(type));
+    outf("Current Antenna Type: %s\n", getAntennaTypeStr(type));
     return true;
 }
 
@@ -654,19 +789,14 @@ bool showPlmn()
     );
 
     if (!response) return false;
-    auto *state = response->first_node("State");
-    auto *fullName = response->first_node("FullName");
-    auto *shortName = response->first_node("ShortName");
-    auto *numeric = response->first_node("Numeric");
-    auto *rat = response->first_node("Rat");
 
-    if (!state || !numeric || !rat || !fullName || !shortName)
-        return false;
+    unsigned rat = getXMLNum(response, "Rat");
 
-    printf("Current Network Operator: %s (%s) | PLMN: %s | Rat: %s (%s)\n",
-           fullName->value(), shortName->value(),
-           numeric->value(), rat->value(),
-           getRatStr(atoi(rat->value())));
+    outf("Current Network Operator: %s (%s) | PLMN: %llu | RAT: %u (%s)\n",
+         getXMLStr(response, "FullName"),
+         getXMLStr(response, "ShortName"),
+         getXMLNum(response, "Numeric"),
+         rat, getRatStr(rat));
 
     return true;
 }
@@ -693,7 +823,7 @@ bool setPlmn(const char *plmn, const char *plmnMode, const char *plmnRat)
 
     if (httpResult.huaweiErrCode == HuaweiErrorCode::ERROR_NET_REGISTER_NET_FAILED)
     {
-        err << "Wrong operator?" << err.endl();
+        err.linef("Wrong operator?");
         return false;
     }
 
@@ -712,7 +842,7 @@ bool selectPlmn(bool select)
         httpOpts
     );
 
-    if (shouldExit) return false;
+    if (checkExit()) return false;
 
     if (!response) return false;
     auto *networks = response->first_node("Networks");
@@ -721,14 +851,14 @@ bool selectPlmn(bool select)
     auto *network = networks->first_node("Network");
     if (!network)
     {
-        err << "No Network Operators available" << err.endl();
+        err.linef("No Network Operators available");
         return false;
     }
 
     struct _network
     {
-        const char *plmn;
-        const char *plmnRat;
+        std::string plmn;
+        std::string rat;
     };
 
     std::vector<_network> _networks;
@@ -736,53 +866,49 @@ bool selectPlmn(bool select)
 
     do
     {
-        auto *state = network->first_node("State");
-        auto *fullName = network->first_node("FullName");
-        auto *shortName = network->first_node("ShortName");
-        auto *numeric = network->first_node("Numeric");
-        auto *rat = network->first_node("Rat");
+        unsigned plmn = getXMLNum(network, "Numeric");
+        unsigned rat = getXMLNum(network, "Rat");
 
-        if (!state || !numeric || !rat || !fullName || !shortName)
-            return false;
+        const char *plmnStr = getXMLStr(network, "Numeric");
+        const char *ratStr = getXMLStr(network, "Rat");
 
-        printf("[%d] | Network: %s (%s) | PLMN: %s | Rat: %s (%s)",
-               ++count,
-               fullName->value(), shortName->value(),
-               numeric->value(), rat->value(),
-               getRatStr(atoi(rat->value())));
+        outf("[%d] | Network: %s (%s) | PLMN: %u | RAT: %u (%s)",
+             ++count,
+             getXMLStr(network, "FullName"),
+             getXMLStr(network, "ShortName"),
+             plmn, rat, getRatStr(rat));
 
-        if (!strcmp(state->value(), "2"))
-            printf(" | [Connected]");
+        if (getXMLNum(network, "State") == 2)
+            outf(" | [Connected]");
 
-        printf("\n");
+        outf("\n");
 
-        _networks.push_back({numeric->value(), rat->value()});
+        _networks.push_back({plmnStr, ratStr});
     }
-    while((network = network->next_sibling("Network")));
+    while ((network = network->next_sibling("Network")));
 
     if (select && _networks.size() > 0)
     {
-        printf("[%u] | [auto]\n", (unsigned)_networks.size()+1u);
+        outf("[%u] | [auto]\n", (unsigned)_networks.size()+1u);
 
         unsigned num;
 
         do
         {
-            printf("\nSelect Network Operator [Number: 1-%u]: ", (unsigned)_networks.size()+1u);
+            outf("\nSelect Network Operator [Number: 1-%u]: ", (unsigned)_networks.size()+1u);
             int c;
             std::string numStr;
-            waitingForInput = true;
-            while ((c = getchar()) != EOF && c != '\n' && c != '\r') numStr.push_back((char)c);
-            waitingForInput = false;
+            while ((c = readChar()) != EOF && c != '\n' && c != '\r') numStr.push_back((char)c);
+            if (checkExit()) return false;
             num = strtoul(numStr.c_str(), nullptr, 10);
-            printf("\n");
+            outf("\n");
         } while (num <= 0 || num > _networks.size()+1u);
 
         if (num == _networks.size()+1)
             return setPlmn("", "0" /* Auto */, "");
 
         const auto &net = _networks[--num];
-        return setPlmn(net.plmn, "1" /* Manually */, net.plmnRat);
+        return setPlmn(net.plmn.c_str(), "1" /* Manually */, net.rat.c_str());
     }
 
     return true;
@@ -801,22 +927,14 @@ bool showNetworkMode()
     );
 
     if (!response) return false;
-    auto *xmlNetworkMode = response->first_node("NetworkMode");
-    if (!xmlNetworkMode) return false;
-    auto *xmlNetworkBand = response->first_node("NetworkBand");
-    if (!xmlNetworkBand) return false;
-    auto *xmlLTEBand = response->first_node("LTEBand");
-    if (!xmlLTEBand) return false;
 
     std::string lteBandStr;
-    unsigned long long lteBand = strtoull(xmlLTEBand->value(), nullptr, 16);
+    unsigned long long lteBand = getXMLHexNum(response, "LTEBand");
     getLTEBandStr((LTEBand)lteBand, lteBandStr);
 
-    unsigned long long networkMode = strtoull(xmlNetworkBand->value(), nullptr, 16);
-
-    printf("Current Network Mode: %s\n", xmlNetworkMode->value());
-    printf("Current Network Band: %llX\n", networkMode);
-    printf("Current LTE Band: %llX (%s)\n", lteBand, lteBandStr.c_str());
+    outf("Current Network Mode: %s\n", getXMLStr(response, "NetworkMode"));
+    outf("Current Network Band: %llX\n", getXMLHexNum(response, "NetworkBand"));
+    outf("Current LTE Band: %llX (%s)\n", lteBand, lteBandStr.c_str());
 
     return true;
 }
@@ -832,18 +950,18 @@ bool setNetworkMode(const char *networkMode, const char *networkBand, const char
 
     if (_lteBand == LTEBand::LTE_BAND_ERROR)
     {
-        err << "Invalid LTE band given" << err.endl();
+        err.linef("Invalid LTE band given");
         return false;
     }
 
-    char lteBandStr[32];
-    snprintf(lteBandStr, sizeof(lteBandStr), "%llX", _lteBand);
+    StrBuf lteBandStr;
+    lteBandStr.format("%llu", _lteBand);
 
     XMLElementPrinter xml;
     XMLNodePrinter xmlNodeRequest(xml, "request");
     xml.printElement("NetworkMode", networkMode);
     xml.printElement("NetworkBand", networkBand);
-    xml.printElement("LTEBand", lteBandStr);
+    xml.printElement("LTEBand", lteBandStr.c_str());
 
     httpOpts.data = xml.getStr();
 
@@ -856,11 +974,8 @@ bool setNetworkMode(const char *networkMode, const char *networkBand, const char
 
     if (httpResult.huaweiErrCode == HuaweiErrorCode::ERROR_SET_NET_MODE_AND_BAND_FAILED)
     {
-        info << "See http://"
-             << web::routerIP
-             << "/api/net/net-mode-list for a list of supported bands. Log in first."
-             << info.endl();
-
+        info.linef("See http://%s/api/net/net-mode-list for a list of supported bands. "
+                   "Log in first.", web::routerIP);
         return false;
     }
 
@@ -872,28 +987,71 @@ bool setNetworkMode(const char *networkMode, const char *networkBand, const char
     return showNetworkMode();
 }
 
-bool relay(const char *request, bool loop, int loopDelay)
+bool relay(const char *request, const char *data, bool loop, int loopDelay)
 {
     web::HttpResult httpResult;
     web::HttpOpts httpOpts;
+
+    bool isXMLRequest = false;
+
+    if (data)
+    {
+        isXMLRequest = !strncasecmp(data, "<?xml", 5);
+
+        if (isXMLRequest)
+        {
+            // Ensure valid XML data has been passed.
+
+            std::string buf;
+            rapidxml::xml_document<> xml;
+
+            buf = data;
+            buf.push_back('\0');
+
+            try
+            {
+                xml.parse<0>(&buf[0]);
+            }
+            catch (rapidxml::parse_error &e)
+            {
+                errfunf("Invalid XML Request: %s", e.what());
+                return false;
+            }
+        }
+    }
 
     do
     {
         httpResult.reset();
         httpOpts.reset();
 
-        if (!web::httpRequest(request, httpResult, httpOpts))
+        if (data) httpOpts.data = data;
+        bool ok;
+
+        if (isXMLRequest) ok = web::xmlHttpRequest(request, httpResult, httpOpts);
+        else ok = web::httpRequest(request, httpResult, httpOpts);
+
+        if (!ok && !httpResult.responseCode)
         {
             err_http(httpResult);
             return false;
         }
 
-        printf("%s\r\n\r\n", httpResult.content.c_str());
-        fflush(stdout);
-        if (loopDelay > 0) delay(loopDelay);
+        if (httpResult.content.empty())
+        {
+            errfunf("Empty Response");
+            return false;
+        }
 
-        disableDebugLog("Relay loop: ");
-    } while (loop && !shouldExit);
+        // Add line breaks to improve readability.
+        strReplace(httpResult.content, "><", ">\n<");
+        strReplace(httpResult.content, ">\n</", "></");
+
+        outf("%s\r\n\r\n", httpResult.content.c_str());
+        if (loopDelay > 0 && !checkExit()) delay(loopDelay);
+
+        disableDebugLog("Relay Loop: ");
+    } while (loop && !checkExit());
 
     enableDebugLog();
 
@@ -902,14 +1060,102 @@ bool relay(const char *request, bool loop, int loopDelay)
 
 namespace experimental {
 
-bool showSignalStrength(bool noClearScreen)
+bool showSignalStrength()
 {
-    TimeType last = getMilliSeconds();
+    RequestLimiter<10, 1000> requestLimiter;
+
+    // Avoid name clash with ::signal
+    using x::signal;
+
+    auto formatSignalStats = [&](const SignalValue<>::GetType type)
+    {
+        StrBuf str;
+
+        if (type == SignalValue<>::GET_CURRENT)
+        {
+            str.format("MODE: %s\n\n", getNetworkTypeExStr((int)signal.networkTypeEx));
+            str.format("OPER: %s\n", signal.operatorNameShort.c_str());
+            str.format("PLMN: %llu\n\n", signal.PLMN);
+        }
+        else
+        {
+            str += "MODE: -\n\n";
+            str += "PLMN: -\n";
+            str += "NAME: -\n\n";
+        }
+
+        switch (signal.mode)
+        {
+            case 0:
+            {
+                str.format("\nRSSI: %d\n\nCELL: %llX\n",
+                           signal.RSSI.getVal(type), signal.cell);
+                break;
+            }
+            case 2:
+            {
+                str.format("RSCP: %d\nECIO: %d\nRSSI: %d\n\n",
+                           signal.RSCP.getVal(type), signal.ECIO.getVal(type),
+                           signal.RSSI.getVal(type));
+
+                if (type == SignalValue<>::GET_CURRENT) str.format("CELL: %llX", signal.cell);
+                else str += "CELL: -";
+
+                break;
+            }
+            case 7:
+            {
+                str.format("RSRP: %d\nRSRQ: %d\nRSSI: %d\nSINR: %s%d\n\n",
+                           signal.RSRP.getVal(type), signal.RSRQ.getVal(type),
+                           signal.RSSI.getVal(type), signal.SINR.getVal(type) >= 0.f ? "+" : "",
+                           signal.SINR.getVal(type));
+
+                if (signal.band != __XML_NUM_ERROR__ &&
+                    signal.DLBW != __XML_NUM_ERROR__ &&
+                    signal.UPBW != __XML_NUM_ERROR__)
+                {
+                    if (type == SignalValue<>::GET_CURRENT)
+                    {
+                        str.format("FREQ: %d MHz\nDLBW: %llu MHz\nUPBW: %llu MHz\n\n",
+                                   getBandFreq((int)signal.band), signal.DLBW, signal.UPBW);
+                    }
+                    else
+                    {
+                        str += "FREQ: -\nDLBW: -\nUPBW: -\n\n";
+                    }
+                }
+
+                if (type == SignalValue<>::GET_CURRENT) str.format("CELL: %llX", signal.cell);
+                else str += "CELL: -";
+
+                break;
+            }
+        }
+
+        if (!str.empty()) str.append("\n\n", 2);
+        return str.getLines();
+    };
+
+    auto printSignalStats = [&]()
+    {
+    #warning conf (parameter too)
+        std::vector<status::Column> columns;
+
+        columns.push_back({"Current", formatSignalStats(SignalValue<>::GET_CURRENT)});
+        columns.push_back({"Average", formatSignalStats(SignalValue<>::GET_AVERAGE)});
+        columns.push_back({"Min", formatSignalStats(SignalValue<>::GET_MIN)});
+        columns.push_back({"Max", formatSignalStats(SignalValue<>::GET_MAX)});
+
+        status::addColumns(columns, 30);
+        status::show();
+    };
 
     do
     {
         web::HttpResult httpResult;
         web::HttpOpts httpOpts;
+
+        // /api/device/signal
 
         auto *response = web::xmlHttpRequest(
             "Getting Signal Strength",
@@ -920,24 +1166,6 @@ bool showSignalStrength(bool noClearScreen)
 
         if (!response) return false;
 
-        // TODO: This should be obviously moved.
-
-        struct
-        {
-            Value<> RSCP;
-            Value<> ECIO;
-            Value<> RSRP;
-            Value<> RSRQ;
-            Value<> RSSI;
-            Value<> SINR;
-            int band;
-            Value<unsigned long long> cell;
-            int DLBW;
-            int UPBW;
-            int mode;
-            int networkTypeEx;
-        } signal;
-
         signal.RSCP.update(getXMLNum(response, "rscp"));
         signal.ECIO.update(getXMLStr(response, "ecio"));
         signal.RSRP.update(getXMLStr(response, "rsrp"));
@@ -945,18 +1173,18 @@ bool showSignalStrength(bool noClearScreen)
         signal.RSSI.update(getXMLStr(response, "rssi"));
         signal.SINR.update(getXMLStr(response, "sinr"));
         signal.band = getXMLNum(response, "band");
-        signal.cell.update(getXMLStr(response, "cell_id"));
+        signal.cell = getXMLNum(response, "cell_id");
         signal.DLBW = getXMLNum(response, "dlbandwidth");
-        signal.UPBW = getXMLNum(response, "upbandwidth");
+        signal.UPBW = getXMLNum(response, "ulbandwidth");
         signal.mode = getXMLNum(response, "mode");
-
-        // TODO: Handle 0 cell_id
 
         httpResult.reset();
         httpOpts.reset();
 
+        // /api/monitoring/status
+
         response = web::xmlHttpRequest(
-            "Getting Signal Strength",
+            "Getting Network Type",
             "/api/monitoring/status",
             httpResult,
             httpOpts
@@ -966,80 +1194,286 @@ bool showSignalStrength(bool noClearScreen)
 
         signal.networkTypeEx = getXMLNum(response, "CurrentNetworkTypeEx");
 
-        if (!noClearScreen) clearScreen();
-        printf("[%s] ", getNetworkTypeExStr(signal.networkTypeEx));
+        httpResult.reset();
+        httpOpts.reset();
+#warning lower
+        // /api/net/current-plmn
 
-        switch (signal.mode)
-        {
-            case 0:
-            {
-                printf("[RSSI: %d, CELL: %llX]\n",
-                       *signal.RSSI.current, *signal.cell.current);
-                break;
-            }
-            case 2:
-            {
-                printf("[RSCP: %d, ECIO: %d, RSSI: %d, CELL: %llX]\n",
-                       *signal.RSCP.current, *signal.ECIO.current,
-                       *signal.RSSI.current, *signal.cell.current);
-                break;
-            }
-            case 7:
-            {
-                printf("[RSRP: %d, RSRQ: %d, RSSI: %d, SINR: %d] ",
-                        *signal.RSRP.current, *signal.RSRQ.current,
-                        *signal.RSSI.current, *signal.SINR.current);
+        response = web::xmlHttpRequest(
+            "Getting PLMN",
+            "/api/net/current-plmn",
+            httpResult,
+            httpOpts
+        );
 
-                if (signal.band != -1 || signal.DLBW != -1)
-                {
-                    printf("[%d MHz, %d MHz, %llX]\n",
-                             getBandFreq(signal.band),
-                             signal.DLBW,
-                             *signal.cell.current);
-                }
-                else // e3372
-                {
-                    printf("[CELL: %llX]\n", *signal.cell.current);
-                }
-                break;
-            }
-            default: printf("\n");
-        }
+        if (!response) return false;
 
-#ifdef _WIN32
-        // Reduce console flickering
-        if (!noClearScreen) delay(1000);
-#endif
+        signal.operatorName = getXMLStr(response, "FullName");
+        signal.operatorNameShort = getXMLStr(response, "ShortName");
+        signal.PLMN = getXMLNum(response, "Numeric");
 
-        disableDebugLog("Signal strength loop: ");
+        disableDebugLog("Signal Strength Loop: ");
 
-        TimeType now = getMilliSeconds();
-        TimeType elapsed = now - last;
-
-        if (elapsed < 100)
-        {
-            // Allow up to 10 requests per second
-            delay(100 - elapsed);
-        }
-    } while (!shouldExit);
+        printSignalStats();
+        while (requestLimiter.limit()) printSignalStats();
+    } while (!checkExit());
 
     enableDebugLog();
+    status::exit();
 
     return true;
 }
 
 } // namespace experimental
+
+bool showWlanClients()
+{
+    // Clients are tracked instead of just printed.
+
+    auto printWlanClients = [&]()
+    {
+        if (wlan::ssids.empty())
+        {
+            status::append("No clients connected!");
+            status::show();
+            return;
+        }
+
+        bool first = true;
+        StrBuf connectionDuration;
+
+        updateTime();
+
+        for (auto &it : wlan::ssids)
+        {
+            const std::string &ssid = it.first;
+            const wlan::ClientVec *clients = it.second.clients.get();
+            unsigned clientNum = 1;
+
+            if (first)
+            {
+                status::addChar('-', 80);
+                status::addChar('\n');
+                first = false;
+            }
+
+            status::format("%s (%zu):\n\n", ssid.c_str(), clients->size());
+
+            for (auto &client : *clients)
+            {
+                const TimeType millis = client.getInterpolatedConnectionDuration();
+                connectionDuration.fmtMillis(millis);
+
+                status::format("[%d] | IP: %s | Mac: %s | Duration: %s\n",
+                               clientNum, client.ipAddress.c_str(),
+                               client.macAddress.c_str(), connectionDuration.c_str());
+
+                connectionDuration.clear();
+
+                clientNum++;
+            }
+
+            status::addChar('-', 80);
+            status::show();
+        }
+    };
+
+    // Perform only one request per ten seconds
+    // to avoid slowing down the WebUI too much.
+
+    RequestLimiter<1, oneSecond * 10> requestLimiter;
+
+    do
+    {
+        if (!wlan::updateClients()) return false;
+        disableDebugLog("WLAN Clients Loop: ");
+        printWlanClients();
+        while (requestLimiter.limit() && !checkExit()) printWlanClients();
+    } while (!checkExit());
+
+    enableDebugLog();
+    status::exit();
+
+    return true;
+}
+
+bool showTraffic()
+{
+    RequestLimiter<1, 2000> requestLimiter;
+
+    TrafficStats currentTraffic("Current");
+    TrafficStats totalTraffic("Total");
+    TrafficStats monthlyTraffic("Monthly");
+
+    web::HttpResult httpResult;
+    web::HttpOpts httpOpts;
+
+    auto printTrafficStats = [&]()
+    {
+        auto formaTrafficStats = [&](const TrafficStats &traffic)
+        {
+            updateTime();
+
+            TimeType trafficTimeDuration = TimeType(-1);
+            StrBuf connectionDuration;
+            StrBuf dlTraffic;
+            StrBuf upTraffic;
+            StrBuf str;
+
+            if (*traffic.CD.current > 0)
+            {
+                const TimeType millis = traffic.CD.getInterpolatedDuration();
+                connectionDuration.fmtMillis(millis);
+            }
+            else
+            {
+                connectionDuration = "0s";
+            }
+
+            if (&traffic != &currentTraffic)
+            {
+                // If this isn't the "Current" column then
+                // we want overall traffic statistics.
+
+                trafficTimeDuration = traffic.CD.getDuration();
+            }
+
+            str.format("Duration:  %s\n", connectionDuration.c_str());
+            str.addChar('\n');
+            str.format("Download:  %s\n", traffic.DL.getTrafficStr(dlTraffic).c_str());
+            str.format("Upload:    %s\n", traffic.UP.getTrafficStr(upTraffic).c_str());
+            str.addChar('\n');
+            str.format("Speed DL:  %.3f Mbit/s\n", traffic.DL.getAvgSpeedInMbits(trafficTimeDuration));
+            str.format("Speed UP:  %.3f Mbit/s\n", traffic.UP.getAvgSpeedInMbits(trafficTimeDuration));
+            str.addChar('\n');
+
+            return str.getLines();
+        };
+
+        std::vector<status::Column> trafficStatsColumns;
+
+        trafficStatsColumns.push_back({"Current", formaTrafficStats(currentTraffic)});
+        trafficStatsColumns.push_back({"Monthly", formaTrafficStats(monthlyTraffic)});
+        trafficStatsColumns.push_back({"Total", formaTrafficStats(totalTraffic)});
+
+        status::addColumns(trafficStatsColumns, trafficColumnSpacing);
+        status::show();
+    };
+
+    auto getTrafficStats = [&](TrafficStats &traffic, const char *desc, bool cached = false)
+    {
+        rapidxml::xml_node<> *response;
+
+        if (!cached)
+        {
+            std::string request = "/api/monitoring/";
+
+            if (!strcmp(desc, "CurrentMonth")) request += "month_statistics";
+            else request += "traffic-statistics";
+
+            httpResult.reset();
+            httpOpts.reset();
+
+            response = web::xmlHttpRequest(
+                "Getting Traffic Stats",
+                request.c_str(),
+                httpResult,
+                httpOpts
+            );
+
+            if (!response) return false;
+        }
+        else
+        {
+            response = httpResult.xml.first_node("response");
+        }
+
+        if (response->first_node("showtraffic"))
+        {
+            unsigned long long showTraffic = getXMLNum(response, "showtraffic");
+            if (showTraffic == __XML_NUM_ERROR__) return false;
+
+            if (showTraffic == 0)
+            {
+                errfunf("showtraffic is set to '0'");
+                return false;
+            }
+        }
+
+        std::string connectTime = std::string(desc) + "ConnectTime";
+        std::string currentDownload = std::string(desc) + "Download";
+        std::string currentUpload = std::string(desc) + "Upload";
+
+        if (!strcmp(desc, "CurrentMonth")) connectTime = "MonthDuration";
+
+        updateTime();
+
+        traffic.CD.update(getXMLNum(response, connectTime.c_str()));
+        traffic.DL.update(getXMLNum(response, currentDownload.c_str()));
+        traffic.UP.update(getXMLNum(response, currentUpload.c_str()));
+
+        return traffic.isSet();
+    };
+
+    do
+    {
+        if (!getTrafficStats(currentTraffic, "Current")) return false;
+        if (!getTrafficStats(totalTraffic, "Total", true)) return false;
+        if (!getTrafficStats(monthlyTraffic, "CurrentMonth")) return false;
+
+        printTrafficStats();
+        disableDebugLog("Traffic Loop: ");
+
+        while (requestLimiter.limit() && !checkExit()) printTrafficStats();
+    } while (!checkExit());
+
+    enableDebugLog();
+    status::exit();
+
+    return true;
+}
+
+bool connect(const int action)
+{
+    HttpResult httpResult;
+    HttpOpts httpOpts;
+
+    XMLElementPrinter xml;
+    XMLNodePrinter xmlNodeRequest(xml, "request");
+    xml.printElement("dataswitch", action);
+
+    httpOpts.data = xml.getStr();
+
+    bool rc;
+
+    rc = xmlHttpRequest(
+        "Connect", "/api/dialup/mobile-dataswitch",
+        httpResult, httpOpts
+    ) != nullptr;
+
+    return rc;
+}
+
+bool disconnect()
+{
+    return connect(0);
+}
+
 } // namespace cli
 
 void init()
 {
     curl_global_init(CURL_GLOBAL_ALL);
+    inited = true;
 }
 
 void deinit()
 {
+    if (!inited) return;
     curl_global_cleanup();
     cookies.clear();
+    wlan::ssids.clear();
+    inited = false;
 }
 
 } // namespace web

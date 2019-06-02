@@ -1,7 +1,29 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <CodeLite_Project Name="Huawei_Tool" Version="10.0.0" InternalType="">
+  <Plugins>
+    <Plugin Name="qmake">
+      <![CDATA[00010001N0007Release000000000000]]>
+    </Plugin>
+  </Plugins>
   <Description/>
   <Dependencies/>
+  <VirtualDirectory Name="src">
+    <File Name="web.h"/>
+    <File Name="web.cpp"/>
+    <File Name="version.h"/>
+    <File Name="tools.h"/>
+    <File Name="tools.cpp"/>
+    <File Name="main.cpp"/>
+    <File Name="huawei_tools.h"/>
+    <File Name="huawei_tools.cpp"/>
+    <File Name="compiler.h"/>
+    <File Name="atomic.h"/>
+    <File Name="at_tcp.h"/>
+    <File Name="at_tcp.cpp"/>
+    <File Name="win32_fmt_specifiers.h"/>
+    <File Name="cli_tools.h"/>
+    <File Name="cli_tools.cpp"/>
+  </VirtualDirectory>
   <Settings Type="Dynamic Library">
     <GlobalSettings>
       <Compiler Options="" C_Options="" Assembler="">
@@ -91,18 +113,4 @@
       </Completion>
     </Configuration>
   </Settings>
-  <VirtualDirectory Name="src">
-    <File Name="web.h"/>
-    <File Name="web.cpp"/>
-    <File Name="version.h"/>
-    <File Name="tools.h"/>
-    <File Name="tools.cpp"/>
-    <File Name="main.cpp"/>
-    <File Name="huawei_tools.h"/>
-    <File Name="huawei_tools.cpp"/>
-    <File Name="compiler.h"/>
-    <File Name="atomic.h"/>
-    <File Name="at_tcp.h"/>
-    <File Name="at_tcp.cpp"/>
-  </VirtualDirectory>
 </CodeLite_Project>

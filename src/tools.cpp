@@ -17,10 +17,11 @@
  **************************************************************************/
 
 #include "tools.h"
+#include "cli_tools.h"
+#include "atomic.h"
 
+#include <cstdarg>
 #include <sys/time.h>
-#include <csignal>
-#include <iostream>
 #include <cryptopp/cryptlib.h>
 #include <cryptopp/sha.h>
 #include <cryptopp/filters.h>
@@ -29,17 +30,208 @@
 
 #ifdef _WIN32
 #include <windows.h>
-#include <conio.h>
-#include "version.h"
-#endif
-
-#ifndef _WIN32
+#else
 #include <unistd.h>
 #endif
 
-extern atomic<bool> w32ExitInstantly;
-extern atomic<bool> waitingForInput;
-extern atomic<bool> shouldExit;
+// String
+
+bool vformat(char *text, size_t size, const char *fmt, va_list args, size_t *length)
+{
+    int ret;
+    ret = vsnprintf(text, size, fmt, args);
+    if (length) *length = ret;
+    return ret > 0 && (size_t)ret < size;
+}
+
+void StrBuf::format(const char *fmt, ...)
+{
+    char buf[16384];
+    size_t length;
+
+    va_list args;
+    va_start(args, fmt);
+    bool ok = vformat(buf, sizeof(buf), fmt, args, &length);
+    va_end(args);
+
+    if (!ok) return;
+
+    append(buf, length);
+}
+
+void StrBuf::addChar(const char c, const size_t repeat)
+{
+    append(repeat, c);
+}
+
+void StrBuf::popChar()
+{
+    if (empty()) return;
+    pop_back();
+}
+
+void StrBuf::fmtMillis(const TimeType millis, const FmtMillisFlags flags)
+{
+    ::fmtMillis(millis, *this, flags);
+}
+
+std::vector<std::string> StrBuf::getLines() const
+{
+    std::vector<std::string> lines;
+    splitLines(lines, c_str(), true);
+    return lines;
+}
+
+StrBuf &StrBuf::operator=(StrBuf&& strBuf)
+{
+    std::string &s = *this;
+    s = std::move(strBuf);
+    return *this;
+}
+
+void strReplace(std::string &str, const char *needle, const char *replace)
+{
+    size_t needleLength = strlen(needle);
+    size_t replaceLength = strlen(replace);
+    size_t pos = 0;
+
+    while ((pos = str.find(needle, pos)) != std::string::npos)
+    {
+        str.replace(pos, needleLength, replace);
+        pos += replaceLength;
+    }
+}
+
+void copystr(char *dst, const char *src, const size_t size)
+{
+    size_t slen = std::min<size_t>(strlen(src), size);
+    memcpy(dst, src, slen);
+    if (slen == size) slen--;
+    dst[slen] = '\0';
+}
+
+bool splitStr(const char *&str, char *buf, size_t size,
+              const char *delimiter, size_t *length)
+{
+    const char *start = str;
+    const char *lineEnd = str;
+
+    if (!*str) return false;
+
+    auto isSplitDelimiter = [&]()
+    {
+        const char *d = delimiter;
+
+        while (*d)
+        {
+            if (*str == *d) return true;
+            d++;
+        }
+
+        return false;
+    };
+
+    while (*str)
+    {
+        if (isSplitDelimiter()) break;
+        lineEnd = ++str;
+    }
+
+    if (isSplitDelimiter()) str++;
+
+    const size_t realLength = lineEnd - start;
+
+    if (buf)
+    {
+        size_t charsToCopy = std::min<size_t>(realLength, size - 1);
+        memcpy(buf, start, charsToCopy);
+        buf[charsToCopy] = '\0';
+        if (length) *length = charsToCopy;
+    }
+    else if (length)
+    {
+        *length = realLength;
+    }
+
+    return true;
+}
+
+bool getLine(const char *&str, char *buf, size_t size)
+{
+    return splitStr(str, buf, size, "\r\n");
+}
+
+size_t splitStr(std::vector<std::string> &strs, const char *str,
+                const char *delimiter, bool allowEmpty)
+{
+    char buf[16384];
+    size_t length;
+
+    while (splitStr(str, buf, sizeof(buf), delimiter, &length))
+    {
+        if (allowEmpty || length > 0) strs.push_back({buf, length});
+    }
+
+    return strs.size();
+}
+
+size_t splitLines(std::vector<std::string> &lines, const char *str, bool emptyLines)
+{
+    return splitStr(lines, str, "\r\n", emptyLines);
+}
+
+size_t getTokenLength(const char *&str, const char *delimiter)
+{
+    size_t length;
+    if (splitStr(str, nullptr, 0, delimiter, &length)) return length;
+    return size_t(-1);
+}
+
+size_t getLineLength(const char *&str)
+{
+    return getTokenLength(str, "\r\n");
+}
+
+std::list<size_t> getLineLengths(const char *str)
+{
+    std::list<size_t> lineLengths;
+    size_t lineLength;
+
+    while ((lineLength = getLineLength(str)) != size_t(-1))
+    {
+        lineLengths.push_back(lineLength);
+    }
+
+    return lineLengths;
+}
+
+size_t getLongestLineLength(const char *str)
+{
+    size_t lineLength;
+    size_t longestLineLength = 0;
+
+    while ((lineLength = getLineLength(str)) != size_t(-1))
+    {
+        if (lineLength > longestLineLength) longestLineLength = lineLength;
+    }
+
+    return longestLineLength;
+}
+
+size_t getLongestLineLength(const std::list<size_t> &lineLengths)
+{
+    size_t longestLineLength = 0;
+
+    for (size_t lineLength : lineLengths)
+    {
+        if (lineLength > longestLineLength)
+        {
+            longestLineLength = lineLength;
+        }
+    }
+
+    return longestLineLength;
+}
 
 // Crypto
 
@@ -74,18 +266,27 @@ std::string &base64(const std::string &msg, std::string &result)
 
 // XML
 
+const char *__XML_ERROR__ = "- XML Error -";
+
 const char *getXMLStr(rapidxml::xml_node<> *node, const char *nodeName)
 {
     auto *result = node->first_node(nodeName);
     if (result) return result->value();
-    return "";
+    return __XML_ERROR__;
 }
 
-unsigned long long getXMLNum(rapidxml::xml_node<> *node, const char *nodeName)
+XMLNumType getXMLNum(rapidxml::xml_node<> *node, const char *nodeName)
 {
     auto *result = node->first_node(nodeName);
     if (result) return strtoull(result->value(), nullptr, 10);
-    return -1;
+    return __XML_NUM_ERROR__;
+}
+
+XMLNumType getXMLHexNum(rapidxml::xml_node<> *node, const char *nodeName)
+{
+    auto *result = node->first_node(nodeName);
+    if (result) return strtoull(result->value(), nullptr, 16);
+    return __XML_NUM_ERROR__;
 }
 
 const char *getIndentation(const size_t indent)
@@ -109,9 +310,10 @@ void XMLElementPrinter::elementEnd(const bool indent)
 {
     if (!numElement) return;
     if (indent) ss << getIndentation(indentation);
-    ss << "</" << elements[numElement - 1] << ">\n";
+    ss << "</" << elements[numElement - 1] << ">";
     if (numElement > 1 && indentation) --indentation;
     --numElement;
+    if (numElement > 0) ss << '\n';
 }
 
 std::string XMLElementPrinter::getStr()
@@ -127,8 +329,23 @@ void XMLElementPrinter::reset()
     ss.str(std::string());
 }
 
-XMLElementPrinter::XMLElementPrinter() { ss << "<?xml version=\"1.0\" ?>\n"; }
-XMLElementPrinter::~XMLElementPrinter() { }
+XMLElementPrinter::XMLElementPrinter()
+{
+    ss << "<?xml version=\"1.0\" ?>\n";
+}
+
+XMLElementPrinter::~XMLElementPrinter() {}
+
+XMLNodePrinter::XMLNodePrinter(XMLElementPrinter &elementPrinter, const char *node)
+                             : elementPrinter(elementPrinter)
+{
+    elementPrinter.element(node, true);
+}
+
+XMLNodePrinter::~XMLNodePrinter()
+{
+    elementPrinter.elementEnd(true);
+}
 
 // Time
 
@@ -136,35 +353,23 @@ TimeType nanoSecondsBase;
 TimeType now;
 
 #ifdef _WIN32
-uint64_t clockSpeed;
+ULONGLONG WINAPI (*GetTickCount64Ptr)();
 #endif
 
 TimeType getNanoSeconds()
 {
 #ifdef _WIN32
-    TimeType ticks;
-    if (!QueryPerformanceCounter(reinterpret_cast<LARGE_INTEGER *>(&ticks))) abort();
-    double tmp = (ticks / static_cast<double>(clockSpeed)) * 1000000000.0;
-    return static_cast<TimeType>(tmp) - nanoSecondsBase;
-#elif defined(__APPLE__) && !defined(USE_GETTIMEOFDAY)
-    union
-    {
-        AbsoluteTime at;
-        TimeType tt;
-    } tmp;
-    tmp.tt = mach_absolute_time();
-    Nanoseconds ns = AbsoluteToNanoseconds(tmp.at);
-    tmp.tt = UnsignedWideToUInt64(ns) - nanoSecondsBase;
-    return tmp.tt;
-#elif !defined(USE_GETTIMEOFDAY)
+    DWORD ticks = GetTickCount64Ptr ? GetTickCount64Ptr() : GetTickCount();
+    return TimeType(ticks * 1000000LL) - nanoSecondsBase;
+#elif defined(__linux__) && !defined(USE_GETTIMEOFDAY)
     struct timespec tp;
     if (clock_gettime(CLOCK_MONOTONIC, &tp) == 0)
-        return static_cast<TimeType>(((tp.tv_sec * 1000000000LL) + tp.tv_nsec)) - nanoSecondsBase;
+        return TimeType(((tp.tv_sec * 1000000000LL) + tp.tv_nsec)) - nanoSecondsBase;
 #endif // WIN32
 #ifndef _WIN32
     struct timeval tv;
     if (gettimeofday(&tv, nullptr) == 0)
-        return static_cast<TimeType>(((tv.tv_sec * 1000000000LL) + (tv.tv_usec * 1000))) - nanoSecondsBase;
+        return TimeType(((tv.tv_sec * 1000000000LL) + (tv.tv_usec * 1000))) - nanoSecondsBase;
     abort();
 #endif
 }
@@ -177,160 +382,70 @@ void updateTime()
 static void initNanoClock()
 {
 #ifdef _WIN32
-    LARGE_INTEGER speed;
-    if (!QueryPerformanceFrequency(&speed)) speed.QuadPart = 0;
-    if (speed.QuadPart <= 0) abort();
-    clockSpeed = speed.QuadPart;
+    HMODULE kernel32 = GetModuleHandle("kernel32.dll");
+    if (kernel32)
+    {
+        FARPROC ptr = GetProcAddress(kernel32, "GetTickCount64");
+        if (ptr) GetTickCount64Ptr = (decltype(GetTickCount64Ptr))ptr;
+    }
 #endif
     nanoSecondsBase = getNanoSeconds();
 }
 
-// Signal handler
-
-void signalHandler(int)
+const std::string &fmtMillis(TimeType millis, StrBuf &buf, const FmtMillisFlags flags)
 {
-    static atomic<int> i(0);
-    if (i >= 5)
+    auto getVal = [&](const TimeType timePeriod)
     {
-        fprintf(stderr, "As you wish... Shutting down ungracefully.\n");
-        w32ConsoleWait("Press enter to exit");
-        exit(2);
-    }
-    fprintf(stderr, "Shutting down. Please be patient (%d) ...\n", 5 - i);
-    i++;
-    extern atomic<bool> shouldExit;
-    shouldExit = true;
-    if (waitingForInput) exit(1);
-}
+        unsigned int val = millis / timePeriod;
+        millis %= timePeriod;
+        return val;
+    };
 
-static void setupSignalHandler()
-{
-    signal(SIGINT, signalHandler);
-    signal(SIGTERM, signalHandler);
+    const unsigned int years = getVal(oneYear);
+    const unsigned int days = getVal(oneDay);
+    const unsigned int hours = getVal(oneHour);
+    const unsigned int minutes = getVal(oneMinute);
+    const unsigned int seconds = getVal(oneSecond);
+
+    auto printVal = [&](const unsigned int val, const char spec, const FmtMillisFlags flag)
+    {
+        if ((flags & flag) != flag || !val) return;
+        buf.format("%u%c ", val, spec);
+    };
+
+    printVal(years, 'y', FMT_YEARS);
+    printVal(days, 'd', FMT_DAYS);
+    printVal(hours, 'h', FMT_HOURS);
+    printVal(minutes, 'm', FMT_MINUTES);
+    printVal(seconds, 's', FMT_SECONDS);
+
+    if (buf.empty()) buf = ((flags & FMT_SECONDS) == FMT_SECONDS) ? "0s" : "-";
+    else buf.popChar(); // space
+
+    return buf;
 }
 
 // Cross Platform
 
 #ifdef _WIN32
 
-extern "C"
-char *strsep(char **stringp, const char *delim)
+TimeType delay(TimeType ms)
 {
-    char *start = *stringp;
-    char *p;
-
-    p = (start != NULL) ? strpbrk(start, delim) : NULL;
-
-    if (p == NULL)
-    {
-        *stringp = NULL;
-    }
-    else
-    {
-        *p = '\0';
-        *stringp = p + 1;
-    }
-
-    return start;
-}
-
-static void w32SetupConsoleHandler()
-{
-    char title[256];
-    wsprintf(title, _MT(TOOLNAME " v" VERSION));
-    SetConsoleTitle((LPCTSTR)title);
-
-    auto consoleHandler = [](DWORD ctrlType) -> BOOL
-    {
-        switch (ctrlType)
-        {
-            case CTRL_C_EVENT:
-            case CTRL_BREAK_EVENT:
-            case CTRL_CLOSE_EVENT:
-                w32ExitInstantly = true;
-                signalHandler(SIGINT);
-                delay(INT_MAX);
-                return TRUE;
-        }
-
-        return FALSE;
-    };
-
-    SetConsoleCtrlHandler((PHANDLER_ROUTINE)+consoleHandler, TRUE);
-}
-
-void w32ConsoleWait(const char *msg)
-{
-    if (w32ExitInstantly) return;
-    if (msg) fprintf(stderr, "%s\n", msg);
-    waitingForInput = true;
-    getchar();
-    waitingForInput = false;
-}
-
-void clearScreen()
-{
-    DWORD cCharsWritten;
-    CONSOLE_SCREEN_BUFFER_INFO csbi;
-    DWORD dwConSize;
-    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-    GetConsoleScreenBufferInfo(hConsole, &csbi);
-    dwConSize = csbi.dwSize.X * csbi.dwSize.Y;
-    FillConsoleOutputCharacter(hConsole, TEXT(' '), dwConSize, {}, &cCharsWritten);
-    GetConsoleScreenBufferInfo(hConsole, &csbi);
-    FillConsoleOutputAttribute(hConsole, csbi.wAttributes, dwConSize, {}, &cCharsWritten);
-    SetConsoleCursorPosition(hConsole, {});
-}
-
-void delay(unsigned ms)
-{
+    TimeType start = getMilliSeconds();
     Sleep(ms);
+    return getMilliSeconds() - start;
 }
 
 #else
 
-void w32ConsoleWait(const char *)
+TimeType delay(TimeType ms)
 {
-}
-
-void clearScreen()
-{
-    printf("%s", "\e[1;1H\e[2J");
-}
-
-static void w32SetupConsoleHandler()
-{
-}
-
-void delay(unsigned ms)
-{
+    TimeType start = getMilliSeconds();
     usleep(ms * 1000);
+    return getMilliSeconds() - start;
 }
 
 #endif /* _WIN32 */
-
-// Debugging
-
-bool writeDebugLog = true;
-
-Message warn("warning", std::cerr);
-Message err("error", std::cerr);
-Message dbg("debug", std::cerr, &writeDebugLog);
-Message info("info", std::cout);
-
-void disableDebugLog(const char *msg)
-{
-    if (!writeDebugLog) return;
-    dbglog << msg << "Disabling debug log\n" << dbg.endl();
-    writeDebugLog = false;
-}
-
-void enableDebugLog()
-{
-    if (writeDebugLog) return;
-    writeDebugLog = true;
-    dbglog << "Enabling debug log\n" << dbg.endl();
-}
 
 // GLIBC Hacks
 
@@ -360,6 +475,4 @@ void *memcpy(void *__restrict dest, const void *__restrict src, size_t n)
 void initTools()
 {
     initNanoClock();
-    setupSignalHandler();
-    w32SetupConsoleHandler();
 }

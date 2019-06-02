@@ -19,6 +19,108 @@
 #include "huawei_tools.h"
 #include <sstream>
 
+// SignalValue
+
+template<>
+const char *const SignalValue<>::getTypeStrs[] =
+{
+    "Current", "Min", "Worst", "Max", "Best", "First",
+    "Previous", "Average", "Invalid",
+    nullptr
+};
+
+template<>
+const char *SignalValue<>::getGetTypeStr(SignalValue<>::GetType type)
+{
+    return getTypeStrs[type];
+}
+
+template<>
+SignalValue<>::GetType SignalValue<>::getGetTypeByStr(const char *type)
+{
+    for (size_t i = 0; getTypeStrs[i]; i++)
+    {
+        if (!strcasecmp(type, getTypeStrs[i])) return (GetType)i;
+    }
+
+    return GET_INVALID;
+}
+
+// Signal
+
+Signal sig;
+
+// AT
+
+// CERSSI
+
+bool Signal::AT::CERSSI_LTE::isSet() const
+{
+    if (!RSRQ.isSet()) return false;
+
+    for (int i = 0; i < numAntennas; i++)
+    {
+        if (!RSRP[i].isSet()) return false;
+    }
+
+    if (numAntennas > 2)
+    {
+        for (int i = 0; i < numAntennas; i++)
+        {
+            if (!SINR[i].isSet()) return false;
+        }
+    }
+    else if (!SINR[0].isSet()) return false;
+
+    return RI.isSet() && CQI[0].isSet() && CQI[1].isSet();
+}
+
+bool Signal::AT::CERSSI_WCDMA::isSet() const
+{
+    return RSCP.isSet() && ECIO.isSet();
+}
+
+bool Signal::AT::CERSSI_GSM::isSet() const
+{
+    return RSSI.isSet();
+}
+
+// HCSQ
+
+bool Signal::AT::HCSQ_LTE::isSet() const
+{
+    if (!RSRP.isSet() || !RSRQ.isSet()) return false;
+    return RSSI.isSet() && SINR.isSet();
+}
+
+bool Signal::AT::HCSQ_WCDMA::isSet() const
+{
+    if (!RSSI.isSet() || !RSCP.isSet()) return false;
+    return ECIO.isSet();
+}
+
+bool Signal::AT::HCSQ_GSM::isSet() const
+{
+    return RSSI.isSet();
+}
+
+// CQI / RSSI
+
+bool Signal::AT::RSSI::isSet() const
+{
+    return RSSILevel.isSet();
+}
+
+// AT
+
+NetType Signal::AT::getNetType() const
+{
+    if (cerssiLTE.isSet()) return NetType::LTE;
+    else if (cerssiWCDMA.isSet()) return NetType::WCDMA;
+    else if (cerssiGSM.isSet()) return NetType::GSM;
+    return NetType::INVALID;
+}
+
 std::string getLTEBandStr(LTEBand lteBand, std::string &str)
 {
     for (size_t i = 1; i < sizeof(LTEBandTable)/sizeof(*LTEBandTable); ++i)
@@ -35,28 +137,27 @@ std::string getLTEBandStr(LTEBand lteBand, std::string &str)
 
 LTEBand getLTEBandFromStr(const char *band)
 {
-    char *token;
-    char *str;
-    char *mem;
+    std::vector<std::string> bands;
     unsigned long long lteBand = 0;
 
     if (band[0] == '+') band++;
-    mem = str = strdup(band);
 
-    while ((token = strsep(&str, "+")))
+    if (splitStr(bands, band, "+", false) > 0)
     {
-        LTEBand b = getLTEBandFromStr2(token);
-
-        if (b == LTEBand::LTE_BAND_ERROR)
+        for (auto &band : bands)
         {
-            lteBand = LTEBand::LTE_BAND_ERROR;
-            break;
-        }
+            LTEBand bits = getLTEBandFromStr2(band.c_str());
 
-        lteBand |= b;
+            if (bits == LTEBand::LTE_BAND_ERROR)
+            {
+                lteBand = LTEBand::LTE_BAND_ERROR;
+                break;
+            }
+
+            lteBand |= bits;
+        }
     }
 
-    free(mem);
     return (LTEBand)lteBand;
 }
 
@@ -84,7 +185,8 @@ std::string huaweiErrStr(HuaweiErrorCode errcode)
         default:;
     }
 
-    std::stringstream sstr;
-    sstr << "Unknown error code: " << errcode;
-    return sstr.str().c_str();
+    StrBuf str;
+    str.format("Unknown error code: %d", errcode);
+
+    return str;
 }

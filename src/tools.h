@@ -19,28 +19,51 @@
 #ifndef __TOOLS_H__
 #define __TOOLS_H__
 
+#include <vector>
+#include <list>
 #include <string>
 #include <sstream>
-#include <fstream>
 #include <limits>
 #include <algorithm>
 #include <tuple>
 #include <cstdlib>
 #include <cstring>
 #include <cstdio>
-#include "atomic.h"
+#include <cstdarg>
 
 #include <rapidxml.hpp>
 
 #include "compiler.h"
 #include "version.h"
+#include "cli_tools.h"
+
+// Preprocessor
 
 #define abort() \
 do \
 { \
     fprintf(stderr, "ABORT: %s:%d [%s]\n", __FILE__, __LINE__, __PRETTY_FUNCTION__); \
+    ::cli::windows::wait(nullptr); \
     abort(); \
 } while (0)
+
+#define XSTR(s) STR(s)
+#define STR(s) #s
+
+// Time
+
+typedef unsigned long long TimeType;
+typedef unsigned int       TimeType32;
+
+enum FmtMillisFlags : int
+{
+    FMT_YEARS = 0x01,
+    FMT_DAYS = 0x02,
+    FMT_HOURS = 0x04,
+    FMT_MINUTES = 0x08,
+    FMT_SECONDS = 0x10,
+    FMT_ALL = FMT_YEARS | FMT_DAYS | FMT_HOURS | FMT_MINUTES | FMT_SECONDS
+};
 
 // Numeric
 
@@ -49,6 +72,23 @@ template<typename T> constexpr T minVal(T) { return std::numeric_limits<T>::min(
 template<typename T> constexpr T maxVal(T) { return std::numeric_limits<T>::max(); }
 
 // String
+
+bool vformat(char *text, size_t size, const char *fmt,
+             va_list args, size_t *length = nullptr);
+
+struct StrBuf : public std::string
+{
+    void format(const char *fmt, ...) PRINTFARGS(2, 3);
+    void addChar(const char c, const size_t repeat = 1);
+    void popChar();
+    void fmtMillis(const TimeType millis, const FmtMillisFlags flags = FMT_ALL);
+    std::vector<std::string> getLines() const;
+
+    StrBuf &operator=(StrBuf&& strBuf);
+
+    template <typename T>
+    void operator=(const T &s) { *this = s; }
+};
 
 cxx14_constexpr bool strEqual(const char *str1, const char *str2)
 {
@@ -62,42 +102,37 @@ cxx14_constexpr bool strEqual(const char *str1, const char *str2)
 }
 
 template <typename BUF, size_t N>
-void copystr(BUF (&dst)[N], const char *src)
+void copystr(BUF (&dst)[N], const char *src, const size_t size = N)
 {
-    size_t slen = std::min<size_t>(strlen(src), N);
+    size_t slen = std::min(std::min<size_t>(strlen(src), N), size);
     memcpy(dst, src, slen);
     if (slen == N) slen--;
     dst[slen] = '\0';
 }
 
-template <typename BUF, size_t N>
-bool getLine(const char *&str, BUF (&buf)[N])
-{
-    static_assert(N > 1, "");
-    const char *start = str;
-    const char *lineEnd = str;
+void copystr(char *dst, const char *src, const size_t size);
 
-    if (!*str) return false;
+bool splitStr(const char *&str, char *buf, size_t size,
+              const char *delimiter, size_t *length = nullptr);
 
-    auto isLineEnd = [&]()
-    {
-        return *str == '\r' || *str == '\n';
-    };
+bool getLine(const char *&str, char *buf, size_t size);
 
-    while (*str)
-    {
-        if (isLineEnd()) break;
-        lineEnd = ++str;
-    }
+size_t splitStr(
+    std::vector<std::string> &strs,
+    const char *str, const char *delimiter,
+    bool allowEmpty = true);
 
-    while (isLineEnd()) str++;
+size_t splitLines(
+    std::vector<std::string> &lines,
+    const char *str, bool emptyLines = false);
 
-    size_t length = std::min<size_t>(lineEnd - start, N - 1);
-    memcpy(buf, start, length);
-    buf[length] = '\0';
+size_t getTokenLength(const char *&str, const char *delimiter);
+size_t getLineLength(const char *&str);
+std::list<size_t> getLineLengths(const char *str);
+size_t getLongestLineLength(const char *str);
+size_t getLongestLineLength(const std::list<size_t> &lineLengths);
 
-    return true;
-}
+void strReplace(std::string &str, const char *needle, const char *replace);
 
 // Crypto
 
@@ -106,8 +141,18 @@ std::string &base64(const std::string &msg, std::string &result);
 
 // XML
 
+// Microsoft defines XML_ERROR in their msxml header,
+// so we are using __XML_ERROR__ instead.
+
+typedef unsigned long long XMLNumType;
+
+extern const char *__XML_ERROR__;
+constexpr XMLNumType __XML_NUM_ERROR__ = -13LLU;
+
 const char *getXMLStr(rapidxml::xml_node<> *node, const char *nodeName);
-unsigned long long getXMLNum(rapidxml::xml_node<> *node, const char *nodeName);
+
+XMLNumType getXMLNum(rapidxml::xml_node<> *node, const char *nodeName);
+XMLNumType getXMLHexNum(rapidxml::xml_node<> *node, const char *nodeName);
 const char *getIndentation(const size_t indent);
 
 class XMLElementPrinter
@@ -122,17 +167,12 @@ public:
     void element(const char *_element, const bool newLine = false, size_t _indentation = 0);
     void elementEnd(const bool indent = false);
 
-    template <typename T> void printElement(const char *_element, T &&_val)
+    template <typename T>
+    void printElement(const char *_element, T &&_val)
     {
         element(_element);
         ss << _val;
         elementEnd();
-    }
-
-    template <typename T> XMLElementPrinter &operator<<(const T &v)
-    {
-        ss << v;
-        return *this;
     }
 
     std::string getStr();
@@ -148,40 +188,33 @@ private:
     XMLElementPrinter &elementPrinter;
 
 public:
-    XMLNodePrinter(XMLElementPrinter &elementPrinter, const char *node)
-            : elementPrinter(elementPrinter)
-    {
-        elementPrinter.element(node, true);
-    }
-    ~XMLNodePrinter()
-    {
-        elementPrinter.elementEnd(true);
-    }
+    XMLNodePrinter(XMLElementPrinter &elementPrinter, const char *node);
+    ~XMLNodePrinter();
 };
 
 // Time
 
-typedef uint64_t TimeType;
-typedef uint32_t TimeType32;
+constexpr TimeType oneSecond = 1000;
+constexpr TimeType oneMinute = oneSecond * 60;
+constexpr TimeType oneHour = oneMinute * 60;
+constexpr TimeType oneDay = oneHour * 24;
+constexpr TimeType oneYear = oneDay * 365;
 
-constexpr TimeType oneSecond = 1 * 1000;
-constexpr TimeType oneMinute = 60 * 1000;
-constexpr TimeType oneHour = 60 * 60 * 1000;
-constexpr TimeType oneDay = 24 * 60 * 60 * 1000;
-
-extern TimeType now;
+// Stop time interpolation after XX milliseconds
+constexpr TimeType MAX_INTERPOLATION_MS = 15 * oneSecond;
 
 TimeType getNanoSeconds();
-void updateTime();
 
 inline TimeType getMicroSeconds() { return getNanoSeconds() / 1000; }
 inline TimeType getMilliSeconds() { return getMicroSeconds() / 1000; }
 
-#ifdef cxx14
-#define TT(a, b) {a, b}
-#else
-#define TT(a, b) std::make_tuple(a, b)
-#endif
+extern TimeType now;
+void updateTime();
+
+const std::string &fmtMillis(TimeType millis, StrBuf &buf,
+    const FmtMillisFlags flags = FMT_ALL);
+
+#define TP(a, b) (a ? a : b)
 
 cxx14_constexpr TimeType getTimeVal(std::tuple<TimeType, TimeType> vals)
 {
@@ -189,104 +222,97 @@ cxx14_constexpr TimeType getTimeVal(std::tuple<TimeType, TimeType> vals)
     return std::get<1>(vals);
 }
 
+inline TimeType getElapsedTime(const TimeType timePoint)
+{
+    return now - timePoint;
+}
+
 inline TimeType timeElapsedGE(const TimeType timePoint, const TimeType cmpVal)
 {
-    return now - timePoint >= cmpVal;
+    return getElapsedTime(timePoint) >= cmpVal;
 }
 
-inline TimeType getTimeDiff(const std::tuple<TimeType, TimeType> a,
-                            const std::tuple<TimeType, TimeType> b)
+inline TimeType timeElapsedLT(const TimeType timePoint, const TimeType cmpVal)
 {
-    return getTimeVal(a) - getTimeVal(b);
+    return getElapsedTime(timePoint) < cmpVal;
 }
 
-inline TimeType getTimeDiffInSeconds(const std::tuple<TimeType, TimeType> a,
-                                     const std::tuple<TimeType, TimeType> b)
+inline TimeType getTimeDiff(const TimeType a, const TimeType b)
+{
+    return a - b;
+}
+
+inline TimeType getTimeDiffInSeconds(const TimeType a, const TimeType b)
 {
     return getTimeDiff(a, b) / 1000;
 }
 
-// Cross Platform
+inline TimeType interpolateDuration(const TimeType seconds, const TimeType lastUpdate)
+{
+    return (seconds * 1000) + getElapsedTime(lastUpdate);
+}
 
-#ifdef _WIN32
-#define snprintf _snprintf
-extern "C" char *strsep(char **stringp, const char *delim);
-#endif
+extern TimeType delay(TimeType);
 
-void w32ConsoleWait(const char *msg = nullptr);
-void clearScreen();
-void delay(unsigned ms);
-
-// Debugging
-
-extern bool writeDebugLog;
-
-class Message
+template<TimeType N, TimeType IN>
+class RequestLimiter
 {
 private:
-    const char *msg;
-    std::ostream *os;
-    bool printprefix;
-    const bool *enabled;
+    static constexpr TimeType LIMIT = IN / N;
+    static constexpr TimeType DELAYSTEP = 50;
+    TimeType last = 0;
+    TimeType toDelay = 0;
 public:
-    static constexpr char endl() { return '\n'; }
-    bool isendl(char c) { return c == '\n'; }
-    template<typename T>
-    bool isendl(T&&) { return false; }
-
-    void assignStream(std::ostream &os_)
+    enum DelayCode : int
     {
-        os = &os_;
-        msg = nullptr;
+        DONE = 0,
+        DELAYING = 1
+    };
+
+    DelayCode limit()
+    {
+        updateTime();
+
+        if (!toDelay)
+        {
+            if (!last || timeElapsedGE(last, LIMIT))
+            {
+                last = now;
+                return DelayCode::DONE;
+            }
+            toDelay = LIMIT - getElapsedTime(last);
+        }
+
+        if (toDelay > 0)
+        {
+            TimeType delayNow;
+            if (toDelay >= DELAYSTEP) delayNow = DELAYSTEP;
+            else delayNow = toDelay;
+            TimeType elapsed = delay(delayNow);
+            if (elapsed > toDelay) elapsed = toDelay;
+            toDelay -= elapsed;
+            if (!toDelay)
+            {
+                last = now + elapsed;
+                return DelayCode::DONE;
+            }
+            return DelayCode::DELAYING;
+        }
+
+        last = now;
+        return DelayCode::DONE;
     }
 
-    template<typename T>
-    Message &operator<<(T &&v)
+    RequestLimiter()
     {
-        std::ios::pos_type pos = os->tellp();
-        if (pos != std::ios::pos_type(-1) && pos >= 5LL*1024LL*1024LL)
-        {
-            *os << "[Reached logfile limit]\n" << std::endl;
-            return *this;
-        }
-        if (enabled && !*enabled)
-        {
-            return *this;
-        }
-        if (printprefix && !isendl(v) /* ignore empty lines */)
-        {
-              *os << "[" << getMilliSeconds() << "] ";
-              if (msg) *os << msg << ": ";
-              printprefix = false;
-        }
-        if (isendl(v))
-        {
-            printprefix = true;
-            *os << std::endl;
-        }
-        else *os << v;
-        return *this;
+        updateTime();
+        last = now;
     }
-
-    Message(const char *msg, std::ostream &os, bool *enabled = nullptr)
-      : msg(msg), os(&os), printprefix(true), enabled(enabled) {}
 };
 
-extern Message warn;
-extern Message err;
-extern Message dbg;
-extern Message info;
+// Cross Platform
 
-void disableDebugLog(const char *msg = "");
-void enableDebugLog();
-
-#define fun_log(stream) \
-    stream << "File:  " <<  __FILE__ \
-           << "  Line:  " << __LINE__ \
-           << "  Function:  " << __PRETTY_FUNCTION__ << ":  "
-
-#define dbglog dbg //fun_log(dbg)
-#define errfun fun_log(err)
+TimeType delay(TimeType ms);
 
 // Initialization
 

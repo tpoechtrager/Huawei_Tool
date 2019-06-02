@@ -22,72 +22,175 @@
 #include "tools.h"
 
 #include <string>
+#include <type_traits>
 #include <cstring>
+#include <cmath>
 #include <map>
 
 // Signal
 
+enum NetType : int
+{
+    LTE,
+    WCDMA,
+    GSM,
+    INVALID
+};
+
 template <typename T>
-struct X
+struct ValueStorage
 {
     T val;
-    TimeType time;
-    constexpr X(T val = T(), T time = TimeType()) : val(val), time(time) {}
+    TimeType lastUpdate;
     void operator =(const T in)
     {
         val = in;
-        time = now;
+        lastUpdate = now;
     }
-    //void operator =(const X &in) { memcpy(this, &in, sizeof(*this)); }
-    T operator*() { return val; }
+    T operator*() const { return val; }
+    constexpr ValueStorage() : val(T()), lastUpdate(T()) {}
 };
 
-template<typename T = int, bool isSpeedValue = false>
-struct Value
+template<typename T = int, bool IS_SPEED_VALUE = false>
+struct SignalValue
 {
-    X<T> current;
-    X<T> min;
-    X<T> max;
-    X<T> first;
-    X<T> last;
+    ValueStorage<T> current;
+    ValueStorage<T> min;
+    ValueStorage<T> max;
+    ValueStorage<T> first;
+    ValueStorage<T> prev;
     float peakBW;
     double sum;
     size_t count;
-    double avgval = 0;
 
-    bool isSet() { return count > 0; }
-    float avg() const { return avgval; /*count ? sum / count : T();*/ }
+    bool isSet() const { return count > 0; }
+    float avg() const { return count ? sum / count : T(); }
 
-    float avgSpeedInMbits(const bool now = false) const
+    float getAvgSpeedInMbits(TimeType timeDiff = TimeType(-1)) const
     {
-        if (!count) return T();
-        const X<T> &v = now ? last : first;
-        float timediff = current.time - v.time;
-        if (!timediff) return T();
-        return (current.val - v.val) / timediff * oneSecond / 1024.f / 1024.f * 8.f;
+        const bool overall = timeDiff != TimeType(-1);
+        if (!overall && count < 2) return float();
+        constexpr ValueStorage<T> dummy;
+        const ValueStorage<T> &prevVal = overall ? dummy : prev;
+        if (!overall) timeDiff = getTimeDiff(current.lastUpdate, prevVal.lastUpdate);
+        if (!timeDiff) return float();
+        return (current.val - prevVal.val) / (float)timeDiff * oneSecond / 1024.f / 1024.f * 8.f;
     }
 
-    float dataTransferredInMB(const bool total = false)
+    float getDataTransferredInMB(const bool total = false) const
     {
         if (!count) return T();
-        constexpr X<T> dummy;
-        const X<T> &v = total ? dummy : first;
-        return (current.val - v.val) / 1024.f / 1024.f;
+        constexpr ValueStorage<T> dummy;
+        const ValueStorage<T> &v = total ? dummy : first;
+        return byteToMegaByte(current.val - v.val);
     }
 
-    void update(const T val)
+    const std::string &getTrafficStr(StrBuf &buf) const
     {
-        if (last.val != current.val) last = current; // keep timestamp
+        constexpr const char *specifiers[] =
+        {
+            "Byte", "KB", "MB", "GB", "TB", "PB", nullptr
+        };
+
+        size_t i = 0;
+        const char *specifier = specifiers[0];
+        double traffic = current.val;
+
+        while (traffic > 1024.0)
+        {
+            i++;
+            if (!specifiers[i]) break;
+            specifier = specifiers[i];
+            traffic /= 1024.0;
+        }
+
+        buf.format("%.2f %s", traffic, specifier);
+
+        return buf;
+    }
+
+    TimeType getDuration() const
+    {
+        return *current * oneSecond;
+    }
+
+    TimeType getInterpolatedDuration() const
+    {
+        TimeType timeDiff = getElapsedTime(current.lastUpdate);
+        TimeType duration = getDuration();
+        if (timeDiff > MAX_INTERPOLATION_MS) return duration;
+        return duration + timeDiff;
+    }
+
+    enum GetType : int
+    {
+        GET_CURRENT,
+        GET_MIN,
+        GET_WORST,
+        GET_MAX,
+        GET_BEST,
+        GET_FIRST,
+        GET_PREVIOUS,
+        GET_AVERAGE,
+        GET_INVALID
+    };
+
+    static const char *const getTypeStrs[];
+    static const char *getGetTypeStr(const GetType type);
+    static GetType getGetTypeByStr(const char *type);
+
+    template<typename TT = T>
+    TT getVal(const int type = GET_CURRENT) const
+    {
+        if (!isSet()) return TT();
+
+        switch (type)
+        {
+            case GET_CURRENT:  return *current;
+            case GET_MIN:      return *min;
+            case GET_WORST:    return *min;
+            case GET_MAX:      return *max;
+            case GET_BEST:     return *max;
+            case GET_FIRST:    return *first;
+            case GET_PREVIOUS: return *prev;
+            case GET_AVERAGE:
+            {
+                if (std::is_integral<TT>::value) return round(avg());
+                else return avg();
+            }
+            default:;
+        }
+
+        return TT();
+    }
+
+#warning min max range ignore
+    template<typename TT>
+    void update(const TT val_)
+    {
+        if (val_ == TT(__XML_NUM_ERROR__)) return;
+        T val;
+        if (std::is_floating_point<TT>::value && std::is_integral<T>::value)
+        {
+            // Round if ValueStorage is an integral type
+            // but a floating point has been passed to us.
+            val = round(val_);
+        }
+        else
+        {
+            val = val_;
+        }
+        if (isSet() && current.val == val) return;
+        prev = current;
         current = val;
-        avgval = (avgval * 5.0 + val) / 6.0;
         if (!count) first = val;
         if (val < min.val) min = val;
         if (val > max.val) max = val;
         sum += val;
         count++;
-        if (isSpeedValue)
+        if (IS_SPEED_VALUE)
         {
-            float currentBW = avgSpeedInMbits(true);
+            float currentBW = getAvgSpeedInMbits();
             if (currentBW > peakBW) peakBW = currentBW;
         }
     }
@@ -105,26 +208,29 @@ struct Value
         max = minVal(T());
     }
 
-    Value() { reset(); }
+    SignalValue() { reset(); }
 };
 
-struct Stats
+struct TrafficStats
 {
-    Value<TimeType> connDuration;
-    Value<unsigned long long, true> DL;
-    Value<unsigned long long, true> UP;
+    const char *desc = "";
+    SignalValue<TimeType> CD;
+    SignalValue<unsigned long long, true> DL;
+    SignalValue<unsigned long long, true> UP;
 
     bool isSet()
     {
-        return connDuration.isSet() && DL.isSet() && UP.isSet();
+        return CD.isSet() && DL.isSet() && UP.isSet();
     }
 
     void reset()
     {
-        connDuration.reset();
+        CD.reset();
         DL.reset();
         UP.reset();
     }
+
+    TrafficStats(const char *desc) : desc(desc) {}
 };
 
 struct ConnStatus
@@ -171,33 +277,112 @@ struct ConnStatus
 
 struct Signal
 {
-    Value<int> RSCP;
-    Value<int> RSRP;
-    Value<int> RSRQ;
-    Value<int> RSSI;
-    Value<int> ECIO;
-    Value<int> SINR;
-    Value<int> RI;
-    Value<int> CQI[2];
-    Value<int> CSQ;
-    Value<int> LAC;
-    Value<int> DLFreq;
-    Value<int> DLBW;
-    Value<int> UPFreq;
-    Value<int> UPBW;
-    int currentCell;
-    std::map<int, bool> cells;
-    Value<int> temperature[2];
-    ConnStatus connStatus;
-    Stats curStats;
-    Stats stats;
-    std::string provider;
-    TimeType lastIdleState;
-    TimeType idleStateMillis;
-    int type;
+    #warning WEB
+    SignalValue<> RSCP;
+    SignalValue<> ECIO;
+    SignalValue<> RSRP;
+    SignalValue<> RSRQ;
+    SignalValue<> RSSI;
+    SignalValue<> SINR;
+
+    XMLNumType band;
+    XMLNumType cell;
+    XMLNumType DLBW;
+    XMLNumType UPBW;
+    XMLNumType mode;
+    XMLNumType networkTypeEx;
+
+    std::string operatorName;
+    std::string operatorNameShort;
+    XMLNumType PLMN;
+
+    struct AT
+    {
+        // CERSSI
+
+        struct CERSSI_LTE
+        {
+            static constexpr int MAX_ANTENNAS = 4;
+            bool isSet() const;
+
+            int numAntennas;
+            SignalValue<> RSRQ;
+            SignalValue<> RSRP[MAX_ANTENNAS];
+            SignalValue<> SINR[MAX_ANTENNAS];
+            SignalValue<> RI;
+            SignalValue<> CQI[2];
+        } cerssiLTE;
+
+        struct CERSSI_WCDMA
+        {
+            bool isSet() const;
+
+            SignalValue<> RSCP;
+            SignalValue<> ECIO;
+        } cerssiWCDMA;
+
+        struct CERSSI_GSM
+        {
+            bool isSet() const;
+
+            SignalValue<> RSSI;
+        } cerssiGSM;
+
+        // HCSQ
+
+        struct HCSQ_LTE
+        {
+            bool isSet() const;
+
+            SignalValue<> RSRP;
+            SignalValue<> RSRQ;
+            SignalValue<> RSSI;
+            SignalValue<> SINR;
+        } hcsqLTE;
+
+        struct HCSQ_WCDMA
+        {
+            bool isSet() const;
+
+            SignalValue<> RSSI;
+            SignalValue<> RSCP;
+            SignalValue<> ECIO;
+        } hcsqWCDMA;
+
+        struct HCSQ_GSM
+        {
+            bool isSet() const;
+
+            SignalValue<> RSSI;
+        } hcsqGSM;
+
+        // CQI / RSSI
+
+        struct RSSI
+        {
+            bool isSet() const;
+
+            SignalValue<> RSSILevel;
+        } rssi;
+
+        NetType getNetType() const;
+    } at;
 };
 
-// LTE
+extern Signal sig;
+
+// avoid name clash with ::signal
+
+namespace x {
+static auto &signal = sig;
+}
+
+// Network
+
+cxx14_constexpr float getSignalStrengthInPercent(const int RSSILevel)
+{
+    return 100.f / 31.f * RSSILevel;
+}
 
 enum AntennaType : int
 {
@@ -310,6 +495,15 @@ cxx14_constexpr const char *getNetworkTypeExStr(int networkTypeEx)
     }
 }
 
+cxx14_constexpr const char *getLTEModulationStr(int CQI)
+{
+    if (CQI >= 1 && CQI <= 6) return "QPSK";
+    else if (CQI >= 7 && CQI <= 9) return "16QAM";
+    else if (CQI >= 10 && CQI <= 15) return "64QAM";
+    else if (CQI == 0) return "OFF";
+    return "??";
+}
+
 enum LTEBand : unsigned long long
 {
     LTE_BAND_ERROR    = 0x0,
@@ -330,7 +524,6 @@ constexpr LTEBand LTEBandTable[] =
     LTE_BAND_2300_TDD, LTE_BAND_2600, LTE_BAND_2600_TDD,
     LTE_BAND_ALL,
 };
-
 
 constexpr const char *LTEBandStrs[] =
 {
@@ -366,8 +559,10 @@ static_assert(getLTEBandFromStr2("ERROR") == LTE_BAND_ERROR, "");
 // Taken from:
 // https://github.com/HSPDev/Huawei-E5180-API/blob/master/README.md
 
+#ifdef _WIN32
 #undef ERROR
 #undef ERROR_BUSY
+#endif
 
 enum HuaweiErrorCode : int
 {

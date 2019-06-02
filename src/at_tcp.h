@@ -23,6 +23,9 @@
 
 namespace at_tcp {
 
+extern char routerIP[128];
+extern int routerPort;
+
 enum AT_TCP_Error
 {
     OK,
@@ -35,8 +38,9 @@ void disconnect();
 bool process(unsigned wait);
 
 namespace cli {
-
-
+extern char columns[64];
+extern int columnSpacing;
+bool showSignalStrength();
 } // namespace cli
 
 void init();

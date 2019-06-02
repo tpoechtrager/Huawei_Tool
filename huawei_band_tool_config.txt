@@ -1,8 +1,51 @@
-## Router IP Address or Host ##
-router_ip = "192.168.8.1";
+##### WEB #####
 
-## Router Username (usually admin) ##
-router_user = "admin";
+# Router IP address or host
+web_router_ip = "192.168.0.1";
 
-## Router Password ##
-router_pass = "admin";
+# Router username (usually admin)
+web_router_user = "admin";
+
+# Router password
+web_router_pass = "admin1";
+
+# Traffic statistics
+web_cli_traffic_column_spacing = "40";
+
+#### AT TCP ####
+
+# Empty = Web Router IP address
+at_tcp_router_ip = "";
+at_tcp_router_port = "20249";
+
+# Available:
+# Current, Min, Max, Worst,
+# Best, Average, First, Previous
+at_tcp_cli_signal_strength_columns = "Current, Average, Min, Max";
+
+at_tcp_cli_column_spacing = "30";
+
+#### Console ####
+
+# Append arguments to window title (Windows only)
+cli_append_arguments_to_window_title = "true";
+
+## Console Cursor ##
+
+# Set this to true if you want to hide the console
+# cursor
+cli_hide_cursor = "false";
+
+# Hide the console cursor when printing status updates
+# --show-signal-strength, --show-wlan-clients, ...
+cli_hide_cursor_status = "true";
+
+## Auto Resize ##
+
+# Automatically resize the console to a maximum of
+# 130 cols and 40 rows (Window only)
+cli_auto_resize_console = "true";
+
+# Resize the console only when the output layout has
+# changed (Windows only)
+cli_auto_resize_console_once = "true";

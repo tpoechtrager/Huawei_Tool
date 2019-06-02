@@ -18,98 +18,58 @@
 
 #include "tools.h"
 #include "huawei_tools.h"
+#include "cli_tools.h"
 #include "at_tcp.h"
 #include "web.h"
 
 #include <cstdlib>
 #include <cstdio>
 #include <string>
-#include <fstream>
 #include <config4cpp/Configuration.h>
 
-#include "atomic.h"
+namespace cli {
 
-atomic<bool> w32ExitInstantly(false);
-atomic<bool> waitingForInput(false);
-atomic<bool> shouldExit(false);
-
-namespace huawei_tool {
-
-void exit_success(bool printSuccess, bool breakBeforePrintingSuccess)
+void NORETURN exit_success(bool printSuccess, bool breakBeforePrintingSuccess)
 {
     if (printSuccess)
     {
-        if (breakBeforePrintingSuccess) printf("\n");
-        printf("SUCCESS\n");
+        if (breakBeforePrintingSuccess) outf("\n");
+        outf("SUCCESS\n");
     }
     web::logout();
     web::deinit();
-    w32ConsoleWait();
+    at_tcp::disconnect();
+    at_tcp::deinit();
+    windows::exitWait = true;
+    windows::wait();
     exit(0);
 }
 
-void exit_error(bool printError)
+void NORETURN exit_error(bool printError)
 {
-    static int recursion = 0;
-    if (++recursion >= 2)
+    if (!checkExit())
     {
-        errfun << "Recursion detected" << err.endl();
-        errfun << "Exiting ungracefully" << err.endl();
-        w32ConsoleWait("Press enter to exit");
-        exit(2);
-    }
-    if (!shouldExit)
-    {
-        if (printError) fprintf(stderr, "\nERROR\n");
-        info << "Check debug.log to see what's going on" << info.endl();
+        if (printError) outf(stderr, "\nERROR\n");
+        info.linef("Check debug.log to see what's going on");
     }
     web::logout();
     web::deinit();
-    w32ConsoleWait();
-    exit(1);
-}
-
-#ifdef WORK_IN_PROGRESS
-void wip()
-{
-    at_tcp::init();
-
-    do
-    {
-        switch (at_tcp::connect())
-        {
-            using namespace at_tcp;
-            case at_tcp::AT_TCP_Error::OK: goto connected;
-            case at_tcp::AT_TCP_Error::COULD_NOT_RESOLVE_HOSTNAME: exit_error(false);
-            case at_tcp::AT_TCP_Error::COULD_NOT_CONNECT: break;
-        }
-
-        if (shouldExit) exit_error(false);
-        delay(3000);
-    } while (!shouldExit);
-
-    connected:;
-
-    dbglog << "Connected successfully" << dbg.endl();
-
-    printf("Waiting for signal strength data... This may take up to 10 seconds.\n");
-
-    do
-    {
-        if (!at_tcp::process(100)) break;
-
-    } while (!shouldExit);
-
     at_tcp::disconnect();
     at_tcp::deinit();
-
+    windows::exitWait = true;
+    windows::wait();
     exit(1);
 }
-#endif
 
 int main(int argc, char **argv)
 {
     config4cpp::Configuration *cfg;
+
+    bool rc = false;
+    bool printSuccess = true;
+    bool printError = true;
+    bool breakBeforePrintingSuccess = false;
+    bool windowsAppendArgumentsToWindowTitle = false;
 
     const char *networkMode = nullptr;
     const char *networkBand = nullptr;
@@ -124,65 +84,110 @@ int main(int argc, char **argv)
     const char *antennaType = nullptr;
     bool showAntennaType = false;
     bool showSignalStrength = false;
-    bool showSignalStrengthNoCLS = false;
+    bool showWlanClients = false;
+    bool showTraffic = false;
     const char *relayRequest = nullptr;
+    const char *relayPostData = nullptr;
     bool relayLoop = false;
     int relayLoopDelay = 0;
-    bool rc = false;
-    bool printSuccess = true;
-    bool printError = true;
-    bool breakBeforePrintingSuccess = false;
+    bool connect = false;
+    bool disconnect = false;
+    bool showAtTcpSignalStrength = false;
 
     cfg = config4cpp::Configuration::create();
 
-    if (/*file_exists()*/true)
+    try
     {
-        try
+        cfg->parse("huawei_band_tool_config.txt");
+
+        // Web
+
+        copystr(web::routerIP, cfg->lookupString("", "web_router_ip"));
+        copystr(web::routerUser, cfg->lookupString("", "web_router_user"));
+        copystr(web::routerPass, cfg->lookupString("", "web_router_pass"));
+        web::cli::trafficColumnSpacing = cfg->lookupInt("", "web_cli_traffic_column_spacing");
+
+        // AT TCP
+
+        copystr(at_tcp::routerIP, cfg->lookupString("", "at_tcp_router_ip"));
+        at_tcp::routerPort = cfg->lookupInt("", "at_tcp_router_port");
+
+        if (!at_tcp::routerIP[0]) copystr(at_tcp::routerIP, web::routerIP);
+
+        const char *columns = cfg->lookupString("", "at_tcp_cli_signal_strength_columns");
+        copystr(at_tcp::cli::columns, columns);
+        at_tcp::cli::columnSpacing = cfg->lookupInt("", "at_tcp_cli_column_spacing");
+
+        // Console
+
+        if (cfg->lookupBoolean("", "cli_hide_cursor"))
         {
-            cfg->parse("huawei_band_tool_config.txt");
-            copystr(web::routerIP, cfg->lookupString("", "router_ip"));
-            copystr(web::routerUser, cfg->lookupString("", "router_user"));
-            copystr(web::routerPass, cfg->lookupString("", "router_pass"));
+            cli::hideCursor_ = true;
+            cli::hideCursor();
+            atexit(+[]{ cli::showCursor(); });
         }
-        catch(const config4cpp::ConfigurationException &ex)
-        {
-            errfun << ex.c_str() << err.endl();
-            err << err.endl();
-        }
+
+        if (cfg->lookupBoolean("", "cli_hide_cursor_status"))
+            cli::status::hideCursor_ = true;
+
+        if (cfg->lookupBoolean("", "cli_append_arguments_to_window_title"))
+            windowsAppendArgumentsToWindowTitle = true;
+
+        if (cfg->lookupBoolean("", "cli_auto_resize_console"))
+            cli::windows::autoResizeConsole = true;
+
+        if (cfg->lookupBoolean("", "cli_auto_resize_console_once"))
+            cli::windows::autoResizeConsoleOnce = true;
+    }
+    catch (const config4cpp::ConfigurationException &ex)
+    {
+        errfunf("%s\n", ex.c_str());
+        cfg->destroy();
+        windows::wait();
+        return 1;
     }
 
     cfg->destroy();
     cfg = nullptr;
 
+    windows::setConsoleTitle(windowsAppendArgumentsToWindowTitle ? argv : nullptr);
+
     auto printHelp = [&argv]()
     {
-        fprintf(stderr,
-                "%s \n"
-                " --network-mode <mode>\n"
-                " --network-band <band>\n"
-                " --lte-band +<bandstr> or <bitmask>\n"
-                " --lte-band-bitmask-from-string <band(s)>\n"
-                " --show-band\n"
-                " --list-plmn\n"
-                " --plmn <plmn>\n"
-                " --plmn-mode <mode>\n"
-                " --plmn-rat <rat>\n"
-                " --select-plmn\n"
-                " --show-plmn\n"
-                " --set-antenna-type <type>\n"
-                " --show-antenna-type\n"
-                " --show-signal-strength\n"
-                " --show-signal-strength-no-cls\n"
-                " --relay <url>\n"
-                " --relay-loop\n"
-                " --relay-loop-delay <milliseconds>\n"
-                " --router-ip <ip or host>\n"
-                " --router-user <username>\n"
-                " --router-pass <password>\n"
-                " --win32-exit-instantly\n"
-                "\nVersion: " VERSION " \"" CODENAME "\" (Built on: " __DATE__ " " __TIME__ ")\n"
-                "Copyright: unknown @ lteforum.at | unknown.lteforum@gmail.com\n\n", argv[0]);
-        w32ConsoleWait();
+        outf(stderr,
+             "%s \n"
+             " --network-mode <mode>\n"
+             " --network-band <band>\n"
+             " --lte-band +<bandstr> or <bitmask>\n"
+             " --lte-band-bitmask-from-string <band(s)>\n"
+             " --show-band\n"
+             " --list-plmn\n"
+             " --plmn <plmn>\n"
+             " --plmn-mode <mode>\n"
+             " --plmn-rat <rat>\n"
+             " --select-plmn\n"
+             " --show-plmn\n"
+             " --set-antenna-type <type>\n"
+             " --show-antenna-type\n"
+             " --show-signal-strength\n"
+             " --show-wlan-clients\n"
+             " --show-traffic\n"
+#ifdef WORK_IN_PROGRESS
+             " --show-at-tcp-signal-strength\n"
+             " --at-tcp-signal-strength-columns <columns>\n"
+#endif
+             " --no-clear-screen\n"
+             " --relay <url>\n"
+             " --relay-post-data <data>\n"
+             " --relay-loop\n"
+             " --relay-loop-delay <milliseconds>\n"
+             " --connect\n"
+             " --disconnect\n"
+             " --windows-exit-instantly\n"
+             "\nVersion: " VERSION " \"" CODENAME "\" (Built on: " __DATE__ " " __TIME__ ")\n"
+             "GitHub: https://github.com/0xAA/Huawei_Tool\n\n"
+             "Copyright: unknown @ lteforum.at | unknown.lteforum@gmail.com\n\n", argv[0]);
+        windows::wait();
         exit(1);
     };
 
@@ -197,8 +202,8 @@ int main(int argc, char **argv)
             char *argument = argv[++i];
             if (!argument)
             {
-                err << "missing argument to '" << arg << "'" << err.endl();
-                fprintf(stderr, "\n");
+                err.linef("Missing argument to '%s'", arg);
+                outf(stderr, "\n");
                 printHelp();
             }
             return argument;
@@ -209,9 +214,9 @@ int main(int argc, char **argv)
         else if (!strcmp(arg, "--lte-band")) lteBand = getArgument();
         else if (!strcmp(arg, "--lte-band-bitmask-from-string"))
         {
-            // Useless cast to shut up the erroneous GCC warning
+            // Useless cast to silence the erroneous GCC warning
             auto bandBitmask = (unsigned long long)getLTEBandFromStr(getArgument());
-            printf("%llX\n", bandBitmask);
+            outf("%llX\n", bandBitmask);
             return 0;
         }
         else if (!strcmp(arg, "--show-band")) bandShow = true;
@@ -224,44 +229,70 @@ int main(int argc, char **argv)
         else if (!strcmp(arg, "--set-antenna-type")) antennaType = getArgument();
         else if (!strcmp(arg, "--show-antenna-type")) showAntennaType = true;
         else if (!strcmp(arg, "--show-signal-strength")) showSignalStrength = true;
-        else if (!strcmp(arg, "--show-signal-strength-no-cls")) showSignalStrengthNoCLS = true;
+        else if (!strcmp(arg, "--show-wlan-clients")) showWlanClients = true;
+        else if (!strcmp(arg, "--show-traffic")) showTraffic = true;
+        else if (!strcmp(arg, "--no-clear-screen")) cli::status::noClearScreen = true;
         else if (!strcmp(arg, "--relay")) relayRequest = getArgument();
+        else if (!strcmp(arg, "--relay-post-data")) relayPostData = getArgument();
         else if (!strcmp(arg, "--relay-loop")) relayLoop = true;
         else if (!strcmp(arg, "--relay-loop-delay")) relayLoopDelay = atoi(getArgument());
-        else if (!strcmp(arg, "--router-ip")) copystr(web::routerIP, getArgument());
-        else if (!strcmp(arg, "--router-user")) copystr(web::routerUser, getArgument());
-        else if (!strcmp(arg, "--router-pass")) copystr(web::routerPass, getArgument());
-        else if (!strcmp(arg, "--win32-exit-instantly")) w32ExitInstantly = true;
+        else if (!strcmp(arg, "--connect")) connect = true;
+        else if (!strcmp(arg, "--disconnect")) disconnect = true;
+        else if (!strcmp(arg, "--windows-exit-instantly")) windows::exitInstantly = true;
 #ifdef WORK_IN_PROGRESS
-        else if (!strcmp(arg, "--wip")) wip();
+        else if (!strcmp(arg, "--show-at-tcp-signal-strength")) showAtTcpSignalStrength = true;
+        else if (!strcmp(arg, "--at-tcp-signal-strength-columns")) copystr(at_tcp::cli::columns, getArgument());
 #endif
         else printHelp();
     }
 
-    if (plmn && (!plmnRat || !plmnMode)) printHelp();
-    if (networkMode && (!networkBand || !lteBand)) printHelp();
-    if (!web::routerIP[0]) printHelp();
-
-    web::init();
-
-    do
+    if (showAtTcpSignalStrength)
     {
-        switch (web::login())
+        at_tcp::init();
+
+        do
         {
-            case HuaweiErrorCode::OK: goto login_sucessful;
-            case HuaweiErrorCode::ERROR_LOGIN_TOO_MANY_USERS_LOGINED:
-            case HuaweiErrorCode::ERROR_LOGIN_ALREADY_LOGINED: break;
-            default: exit_error(false);
-        }
+            switch (at_tcp::connect())
+            {
+                using namespace at_tcp;
+                case at_tcp::AT_TCP_Error::OK: goto connected;
+                case at_tcp::AT_TCP_Error::COULD_NOT_RESOLVE_HOSTNAME: exit_error(false);
+                case at_tcp::AT_TCP_Error::COULD_NOT_CONNECT: break;
+            }
+            if (checkExit()) exit_error(false);
+            delay(3000);
+        } while (!checkExit());
 
-        if (shouldExit) exit_error(false);
-        delay(3000);
-    } while (true);
+        connected:;
+        #warning reconnect
+        dbg.linef("Connected successfully");
+    }
+    else
+    {
+        if (plmn && (!plmnRat || !plmnMode)) printHelp();
+        if (networkMode && (!networkBand || !lteBand)) printHelp();
+        if (!web::routerIP[0]) printHelp();
 
-    login_sucessful:;
+        web::init();
 
-    dbglog << "Login successful" << dbg.endl();
-    dbglog << dbg.endl();
+        do
+        {
+            switch (web::login())
+            {
+                case HuaweiErrorCode::OK: goto login_sucessful;
+                case HuaweiErrorCode::ERROR_LOGIN_TOO_MANY_USERS_LOGINED:
+                case HuaweiErrorCode::ERROR_LOGIN_ALREADY_LOGINED: break;
+                default: exit_error(false);
+            }
+
+            if (checkExit()) exit_success(false, false);
+            delay(3000);
+        } while (true);
+
+        login_sucessful:;
+
+        dbg.linef("Login successful");
+    }
 
     if (antennaType)
     {
@@ -285,7 +316,7 @@ int main(int argc, char **argv)
     {
         rc = web::cli::selectPlmn(selectPlmn);
         printSuccess = selectPlmn;
-        printError = plmnList; /* In case of wrong number entered */
+        printError = true;
     }
     else if (plmn)
     {
@@ -308,44 +339,66 @@ int main(int argc, char **argv)
     }
     else if (relayRequest)
     {
-        rc = web::cli::relay(relayRequest, relayLoop, relayLoopDelay);
+        rc = web::cli::relay(relayRequest, relayPostData, relayLoop, relayLoopDelay);
         printSuccess = false;
         printError = false;
     }
-    else if (showSignalStrength || showSignalStrengthNoCLS)
+    else if (showSignalStrength)
     {
-        rc = web::cli::experimental::showSignalStrength(showSignalStrengthNoCLS);
+        rc = web::cli::experimental::showSignalStrength();
+        printSuccess = false;
+        printError = false;
+    }
+    else if (showWlanClients)
+    {
+        rc = web::cli::showWlanClients();
+        printSuccess = false;
+        printError = false;
+    }
+    else if (showTraffic)
+    {
+        rc = web::cli::showTraffic();
+        printSuccess = false;
+        printError = false;
+    }
+    else if (connect || disconnect)
+    {
+        rc = connect ? web::cli::connect() : web::cli::disconnect();
+        printSuccess = true;
+        printError = true;
+    }
+    else if (showAtTcpSignalStrength)
+    {
+        rc = at_tcp::cli::showSignalStrength();
         printSuccess = false;
         printError = false;
     }
     else
     {
-        err << "You are doing something wrong" << err.endl();
+        err.linef("You are doing something wrong");
+        at_tcp::disconnect();
+        at_tcp::deinit();
         web::logout();
         web::deinit();
-        fprintf(stderr, "\n");
+        outf(stderr, "\n");
         printHelp();
     }
 
     if (rc) exit_success(printSuccess, breakBeforePrintingSuccess);
     else exit_error(printError);
-
-    return 1;
 }
 
-} // namespace huawei_tool
+} // namespace cli
 
 int main(int argc, char **argv)
 {
     initTools();
+    cli::init();
+    atexit(cli::deinit);
 
-    std::fstream dbgLogFile("debug.log", std::ios_base::out | std::ios_base::trunc);
-    if (dbgLogFile.good()) dbg.assignStream(dbgLogFile);
-    else err << "failed to open debug logfile" << err.endl();
+    FILE *dbgLogFile = fopen("debug.log", "w");
+    if (dbgLogFile) dbg.assignStream(dbgLogFile);
+    else err.linef("Failed to open debug logfile");
 
-    const char *tool = argv[0];
-    if (strstr(tool, "huawei")) return huawei_tool::main(argc, argv);
-    err << "unknown tool" << err.endl();
-    err << "did you rename the executable?" << err.endl();
-    return 1;
+    return cli::main(argc, argv);
 }

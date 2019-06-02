@@ -1,3 +1,3 @@
 #!/bin/sh
 
-./huawei_band_tool --show-signal-strength-no-cls
+./huawei_band_tool --show-signal-strength --no-clear-screen

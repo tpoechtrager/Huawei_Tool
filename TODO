@@ -1,12 +1,20 @@
+* Rename the tool to "huawei_tool"
+* Windows 64 bit
+
 v0.2:
-* --relay-post-data
 * --bandstr-from-lte-band-bitmask
+* --show-bandwidth | --show-traffic | --bandwidth-monitor
+* --connect | --disconnect
 
 v0.3:
+* --enable-wlan | --disable-wlan
 * TCP AT CLI
 * TTY Proxy
-* --show-bandwidth | --show-traffic | --bandwidth-monitor
 
 v0.4:
 * --ping-workaround
-* Log signal strength into an SQL database.
+* Log signal strength and WLAN clients into an SQL database.
+
+re-design wlan layout
+traffic duration f*ed up on windows
+shrink this fucking list

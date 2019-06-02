@@ -26,4 +26,4 @@ Libs: `curl`, `rapidxml`, `crypto++`, `config4cpp` and `sdl2_net`
 ### Building: ###
 
     cd src
-    make
+    make install
