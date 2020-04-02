@@ -3,10 +3,15 @@
 set -e
 pushd "${0%/*}" &>/dev/null
 
-ln -sf ~/build/libs ..
+#ln -sf $PWD/../libs ..
 
 TOOLNAME="huawei_band_tool"
 RELEASEDIR="../release"
+
+if [ $(hostname) == "thomas-pc" ]; then
+  llvm apple
+  unset CC CXX
+fi
 
 function trim_line()
 {
@@ -99,13 +104,20 @@ rm -rf $(ls -d ${RELEASEDIR}/*/)
 rm -rf ${RELEASEDIR}/{*.zip,*.bz2}
 
 build linux_armv5 Linux/armv5
-build android_armv7 Android/armv7
+build linux_aarch64 Linux/aarch64
+
+#build android_armv7 Android/armv7
 build linux_x86_64 Linux/64bit
 build linux_i686 Linux/32bit
-build openwrt_mips_musl OpenWRT/MIPS/32bit/big_endian/musl_static
-build openwrt_mips_uclibc OpenWRT/MIPS/32bit/big_endian/uclibc
+build linux_armv5 Linux/armv5
+build linux_aarch64 Linux/aarch64
+build freebsd_amd64 FreeBSD/amd64
+#build openwrt_mips_musl OpenWRT/MIPS/32bit/big_endian/musl_static
+#build openwrt_mips_uclibc OpenWRT/MIPS/32bit/big_endian/uclibc
 build macos_x86_64 MacOS/64bit
-build ios iOS/armv7_armv7s_arm64
+build macos_x86_64 MacOS/32bit
+build ios_arm64 iOS/arm64
+build ios_arm64e iOS/arm64e
 build win32 Windows/32bit
 build win64 Windows/64bit
 

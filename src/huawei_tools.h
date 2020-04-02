@@ -203,7 +203,7 @@ struct SignalValue
 
     void reset()
     {
-        memset(this, 0, sizeof(*this));
+        memset((void*)this, 0, sizeof(*this));
         min = maxVal(T());
         max = minVal(T());
     }

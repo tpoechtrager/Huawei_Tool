@@ -240,8 +240,8 @@ std::string &sha256(const std::string &msg, std::string &result)
     result.clear();
 
     CryptoPP::SHA256 hash;
-    byte digest[CryptoPP::SHA256::DIGESTSIZE];
-    hash.CalculateDigest(digest, (byte*)msg.c_str(), msg.length());
+    CryptoPP::byte digest[CryptoPP::SHA256::DIGESTSIZE];
+    hash.CalculateDigest(digest, (CryptoPP::byte*)msg.c_str(), msg.length());
 
     CryptoPP::HexEncoder encoder;
     encoder.Attach(new CryptoPP::StringSink(result));

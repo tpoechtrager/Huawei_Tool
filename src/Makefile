@@ -10,6 +10,7 @@ override CPP= $(shell echo $(CXX) | sed 's/$(COMPILER)/cpp)/')
 
 override PLATFORM:= $(shell echo $(PLATFORM) | tr '[:upper:]' '[:lower:]')
 override FLAGS+= -std=$(STD) -O$(OPTIMIZE) -I. -Wall -Wextra -Werror=format
+override LDFLAGS+= -pthread
 
 ifeq (1, $(DEBUG))
     override FLAGS+= -g3
@@ -30,7 +31,6 @@ ifeq (1, $(LTO))
 endif
 
 ifneq (, $(LIBS))
-    override FLAGS+= $(LTOFLAG)
     ifeq (, $(findstring darwin, $(PLATFORM)))
         ifneq (1, $(DEBUG))
             override LDFLAGS+= -Wl,-s
@@ -63,7 +63,7 @@ ifneq (, $(findstring android, $(PLATFORM)))
 endif
 
 ifneq (, $(findstring mingw, $(PLATFORM)))
-    override FLAGS+= -isystem $(COMPILER) -DCURL_STATICLIB -D__USE_MINGW_ANSI_STDIO
+    override FLAGS+= -DCURL_STATICLIB -D__USE_MINGW_ANSI_STDIO
     override EXTRA_LIBS+= -lws2_32 -liphlpapi -lshlwapi
     override EXE_SUFFIX= .exe
 endif
@@ -75,7 +75,7 @@ SRCS=at_tcp.cpp huawei_tools.cpp main.cpp tools.cpp web.cpp cli_tools.cpp
 OBJS=$(subst .cpp,.o,$(SRCS))
 OBJS:=$(subst .c,.o,$(OBJS))
 
-override LDFLAGS+= -lcryptopp -lconfig4cpp -lcurl -lSDL2_net -lSDL2 $(EXTRA_LIBS)
+override LDFLAGS+= -lcryptopp -lconfig4cpp -lcurl -lz -lSDL2_net -lSDL2 $(EXTRA_LIBS)
 
 all: project
 
