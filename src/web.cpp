@@ -955,7 +955,7 @@ bool setNetworkMode(const char *networkMode, const char *networkBand, const char
     }
 
     StrBuf lteBandStr;
-    lteBandStr.format("%llu", _lteBand);
+    lteBandStr.format("%llx", _lteBand);
 
     XMLElementPrinter xml;
     XMLNodePrinter xmlNodeRequest(xml, "request");
