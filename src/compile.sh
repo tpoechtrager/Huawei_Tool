@@ -41,9 +41,8 @@ elif [ $SYS == openwrt_mips_musl ]; then
   STRIP=mips-openwrt-linux-strip
   EXTRA_LIBS+=" -lgcc_eh -static"
 elif [ $SYS == freebsd_amd64 ]; then
-  PLATFORM=Linux
+  PLATFORM=FreeBSD
   CXX="${FREEBSD_HOST}g++"
-  FLAGS="-static-libgcc -static-libstdc++"
   STRIP="${FREEBSD_HOST}strip"
 elif [ $SYS == win32 ]; then
   PLATFORM=MinGW

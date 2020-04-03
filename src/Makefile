@@ -35,7 +35,7 @@ ifneq (, $(LIBS))
         ifneq (1, $(DEBUG))
             override LDFLAGS+= -Wl,-s
         endif
-        override LDFLAGS+= -static-libgcc -static-libstdc++
+        override LDFLAGS+= -static -static-libgcc -static-libstdc++
         override LDFLAGS+= -Wl,--gc-sections
        # override LDFLAGS+= -Wl,--as-needed
     else
