@@ -11,6 +11,8 @@ LTO_JOBS=8
 STD=c++14
 LIBS=../libs/$SYS
 
+NO_STATIC_C_LIB=0
+
 if [ $SYS == linux_x86_64 ]; then
   PLATFORM=Linux
   CXX=g++
@@ -23,10 +25,12 @@ elif [ $SYS == linux_armv5 ]; then
   PLATFORM=Linux
   CXX=arm-unknown-linux-gnueabi-g++
   STRIP=arm-unknown-linux-gnueabi-strip
+  NO_STATIC_C_LIB=1
 elif [ $SYS == linux_aarch64 ]; then
   PLATFORM=Linux
   CXX=aarch64-unknown-linux-gnu-g++
   STRIP=aarch64-unknown-linux-gnu-strip
+  NO_STATIC_C_LIB=1
 elif [ $SYS == openwrt_mips_uclibc ]; then
   PLATFORM=Linux
   openwrt_uclibc
@@ -93,6 +97,7 @@ make clean
 
 make \
   CXX="$CXX" STD=$STD PLATFORM=$PLATFORM \
+  NO_STATIC_C_LIB="$NO_STATIC_C_LIB" \
   LIBS=$LIBS RELEASE=1 FLAGS="$FLAGS" \
   EXTRA_LIBS="$EXTRA_LIBS" -j
 

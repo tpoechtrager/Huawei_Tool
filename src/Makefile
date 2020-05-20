@@ -1,4 +1,5 @@
 PLATFORM ?= $(shell uname -s)
+NO_STATIC_C_LIB ?= 0
 RELEASE ?= 0
 DEBUG ?= 0
 OPTIMIZE ?= 3
@@ -35,7 +36,10 @@ ifneq (, $(LIBS))
         ifneq (1, $(DEBUG))
             override LDFLAGS+= -Wl,-s
         endif
-        override LDFLAGS+= -static -static-libgcc -static-libstdc++
+        ifeq (0, $(NO_STATIC_C_LIB))
+            override LDFLAGS+= -static
+        endif
+        override LDFLAGS+= -static-libgcc -static-libstdc++
         override LDFLAGS+= -Wl,--gc-sections
        # override LDFLAGS+= -Wl,--as-needed
     else
