@@ -1,6 +1,6 @@
 /***************************************************************************
  *  Huawei Tool                                                            *
- *  Copyright (c) 2017 unknown (unknown.lteforum@gmail.com)                *
+ *  Copyright (c) 2017-2020 unknown (unknown.lteforum@gmail.com)           *
  *                                                                         *
  *  This program is free software: you can redistribute it and/or modify   *
  *  it under the terms of the GNU General Public License as published by   *
@@ -18,4 +18,4 @@
 
 #define TOOLNAME "Huawei Band Tool"
 #define CODENAME "Meow, I am a cat! Edition"
-#define VERSION "0.2.2-Alpha"
+#define VERSION "0.2.3-Alpha"
