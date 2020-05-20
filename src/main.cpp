@@ -1,6 +1,6 @@
 /***************************************************************************
  *  Huawei Tool                                                            *
- *  Copyright (c) 2017 unknown (unknown.lteforum@gmail.com)                *
+ *  Copyright (c) 2017-2020 unknown (unknown.lteforum@gmail.com)           *
  *                                                                         *
  *  This program is free software: you can redistribute it and/or modify   *
  *  it under the terms of the GNU General Public License as published by   *
@@ -92,6 +92,7 @@ int main(int argc, char **argv)
     int relayLoopDelay = 0;
     bool connect = false;
     bool disconnect = false;
+    bool reboot = false;
     bool showAtTcpSignalStrength = false;
 
     cfg = config4cpp::Configuration::create();
@@ -183,6 +184,7 @@ int main(int argc, char **argv)
              " --relay-loop-delay <milliseconds>\n"
              " --connect\n"
              " --disconnect\n"
+             " --reboot\n"
              " --windows-exit-instantly\n"
              "\nVersion: " VERSION " \"" CODENAME "\" (Built on: " __DATE__ " " __TIME__ ")\n"
              "GitHub: https://github.com/0xAA/Huawei_Tool\n\n"
@@ -238,6 +240,7 @@ int main(int argc, char **argv)
         else if (!strcmp(arg, "--relay-loop-delay")) relayLoopDelay = atoi(getArgument());
         else if (!strcmp(arg, "--connect")) connect = true;
         else if (!strcmp(arg, "--disconnect")) disconnect = true;
+        else if (!strcmp(arg, "--reboot")) reboot = true;
         else if (!strcmp(arg, "--windows-exit-instantly")) windows::exitInstantly = true;
 #ifdef WORK_IN_PROGRESS
         else if (!strcmp(arg, "--show-at-tcp-signal-strength")) showAtTcpSignalStrength = true;
@@ -364,6 +367,12 @@ int main(int argc, char **argv)
     else if (connect || disconnect)
     {
         rc = connect ? web::cli::connect() : web::cli::disconnect();
+        printSuccess = true;
+        printError = true;
+    }
+    else if (reboot)
+    {
+        rc = web::cli::reboot();
         printSuccess = true;
         printError = true;
     }

@@ -1,6 +1,6 @@
 /***************************************************************************
  *  Huawei Tool                                                            *
- *  Copyright (c) 2017 unknown (unknown.lteforum@gmail.com)                *
+ *  Copyright (c) 2017-2020 unknown (unknown.lteforum@gmail.com)           *
  *                                                                         *
  *  This program is free software: you can redistribute it and/or modify   *
  *  it under the terms of the GNU General Public License as published by   *
@@ -1457,6 +1457,27 @@ bool connect(const int action)
 bool disconnect()
 {
     return connect(0);
+}
+
+bool reboot()
+{
+    HttpResult httpResult;
+    HttpOpts httpOpts;
+
+    XMLElementPrinter xml;
+    XMLNodePrinter xmlNodeRequest(xml, "request");
+    xml.printElement("Control", 1);
+
+    httpOpts.data = xml.getStr();
+
+    bool rc;
+
+    rc = xmlHttpRequest(
+        "Reboot", "/api/device/control",
+        httpResult, httpOpts
+    ) != nullptr;
+
+    return rc;
 }
 
 } // namespace cli

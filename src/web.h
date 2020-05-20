@@ -1,6 +1,6 @@
 /***************************************************************************
  *  Huawei Tool                                                            *
- *  Copyright (c) 2017 unknown (unknown.lteforum@gmail.com)                *
+ *  Copyright (c) 2017-2020 unknown (unknown.lteforum@gmail.com)           *
  *                                                                         *
  *  This program is free software: you can redistribute it and/or modify   *
  *  it under the terms of the GNU General Public License as published by   *
@@ -100,6 +100,8 @@ bool showTraffic();
 
 bool connect(const int action = 1);
 bool disconnect();
+
+bool reboot();
 
 } // namespace cli
 
