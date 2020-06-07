@@ -11,7 +11,9 @@ LTO_JOBS=8
 STD=c++14
 LIBS=../libs/$SYS
 
-NO_STATIC_C_LIB=0
+if [ -z "$NO_STATIC_C_LIB" ]; then
+  NO_STATIC_C_LIB=0
+fi
 
 if [ $SYS == linux_x86_64 ]; then
   PLATFORM=Linux
@@ -21,16 +23,18 @@ elif [ $SYS == linux_i686 ]; then
   PLATFORM=Linux
   CXX="g++ -m32"
   STRIP=strip
-elif [ $SYS == linux_armv5 ]; then
+elif [ $SYS == linux_armv6 ]; then
   PLATFORM=Linux
-  CXX=arm-unknown-linux-gnueabi-g++
-  STRIP=arm-unknown-linux-gnueabi-strip
-  NO_STATIC_C_LIB=1
+  CXX=armv6-rpi-linux-gnueabi-g++
+  STRIP=armv6-rpi-linux-gnueabi-strip
+elif [ $SYS == linux_armv7 ]; then
+  PLATFORM=Linux
+  CXX=armv7-rpi2-linux-gnueabihf-g++
+  STRIP=armv7-rpi2-linux-gnueabihf-strip
 elif [ $SYS == linux_aarch64 ]; then
   PLATFORM=Linux
-  CXX=aarch64-unknown-linux-gnu-g++
-  STRIP=aarch64-unknown-linux-gnu-strip
-  NO_STATIC_C_LIB=1
+  CXX=aarch64-rpi3-linux-gnu-g++
+  STRIP=aarch64-rpi3-linux-gnu-strip
 elif [ $SYS == openwrt_mips_uclibc ]; then
   PLATFORM=Linux
   openwrt_uclibc

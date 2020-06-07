@@ -103,14 +103,12 @@ function build()
 rm -rf $(ls -d ${RELEASEDIR}/*/)
 rm -rf ${RELEASEDIR}/{*.zip,*.bz2}
 
-build linux_armv5 Linux/armv5
-build linux_aarch64 Linux/aarch64
-
 #build android_armv7 Android/armv7
 build linux_x86_64 Linux/64bit
 build linux_i686 Linux/32bit
-build linux_armv5 Linux/armv5
-build linux_aarch64 Linux/aarch64
+build linux_armv6 Linux/linux_armv6
+build linux_armv7 Linux/linux_armv7
+build linux_aarch64 Linux/linux_aarch64
 build freebsd_amd64 FreeBSD/amd64
 #build openwrt_mips_musl OpenWRT/MIPS/32bit/big_endian/musl_static
 #build openwrt_mips_uclibc OpenWRT/MIPS/32bit/big_endian/uclibc
