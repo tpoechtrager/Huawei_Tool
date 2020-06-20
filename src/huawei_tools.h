@@ -509,6 +509,7 @@ enum LTEBand : unsigned long long
     LTE_BAND_ERROR    = 0x0,
     LTE_BAND_800      = 0x80000,
     LTE_BAND_900      = 0x80,
+    LTE_BAND_1500     = 0x80000000,
     LTE_BAND_1800     = 0x4,
     LTE_BAND_2100     = 0x1,
     LTE_BAND_2300_TDD = 0x8000000000,
@@ -520,16 +521,28 @@ enum LTEBand : unsigned long long
 constexpr LTEBand LTEBandTable[] =
 {
     LTE_BAND_ERROR,
-    LTE_BAND_800, LTE_BAND_900, LTE_BAND_1800, LTE_BAND_2100,
-    LTE_BAND_2300_TDD, LTE_BAND_2600, LTE_BAND_2600_TDD,
+    LTE_BAND_800,
+    LTE_BAND_900,
+    LTE_BAND_1500,
+    LTE_BAND_1800,
+    LTE_BAND_2100,
+    LTE_BAND_2300_TDD,
+    LTE_BAND_2600,
+    LTE_BAND_2600_TDD,
     LTE_BAND_ALL,
 };
 
 constexpr const char *LTEBandStrs[] =
 {
     "ERROR",
-    "800", "900", "1800", "2100",
-    "2300|TDD", "2600", "2600|TDD",
+    "800",
+    "900",
+    "1500",
+    "1800",
+    "2100",
+    "2300|TDD",
+    "2600",
+    "2600|TDD",
     "ALL",
 };
 
@@ -547,6 +560,7 @@ LTEBand getLTEBandFromStr(const char *band);
 #ifdef cxx14
 static_assert(getLTEBandFromStr2("800") == LTE_BAND_800, "");
 static_assert(getLTEBandFromStr2("900") == LTE_BAND_900, "");
+static_assert(getLTEBandFromStr2("1500") == LTE_BAND_1500, "");
 static_assert(getLTEBandFromStr2("1800") == LTE_BAND_1800, "");
 static_assert(getLTEBandFromStr2("2100") == LTE_BAND_2100, "");
 static_assert(getLTEBandFromStr2("2300|TDD") == LTE_BAND_2300_TDD, "");
