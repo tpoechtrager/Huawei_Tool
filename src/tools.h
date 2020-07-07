@@ -147,9 +147,10 @@ std::string &base64(const std::string &msg, std::string &result);
 typedef unsigned long long XMLNumType;
 
 extern const char *__XML_ERROR__;
-constexpr XMLNumType __XML_NUM_ERROR__ = -13LLU;
+constexpr XMLNumType __XML_NUM_ERROR__ = 0xFEFCFDFDFDFDFCFC;
 
 const char *getXMLStr(rapidxml::xml_node<> *node, const char *nodeName);
+std::string getXMLSubValStr(rapidxml::xml_node<> *node, const char *nodeName, const char *subStrName);
 
 XMLNumType getXMLNum(rapidxml::xml_node<> *node, const char *nodeName);
 XMLNumType getXMLHexNum(rapidxml::xml_node<> *node, const char *nodeName);

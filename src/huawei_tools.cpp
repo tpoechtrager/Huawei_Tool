@@ -188,5 +188,5 @@ std::string huaweiErrStr(HuaweiErrorCode errcode)
     StrBuf str;
     str.format("Unknown error code: %d", errcode);
 
-    return str;
+    return std::move(str);
 }

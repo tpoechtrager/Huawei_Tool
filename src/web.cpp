@@ -1110,6 +1110,27 @@ bool showSignalStrength()
                            signal.RSSI.getVal(type), signal.SINR.getVal(type) >= 0.f ? "+" : "",
                            signal.SINR.getVal(type));
 
+                if (signal.CQI[0].isSet() && signal.CQI[1].isSet())
+                {
+                     str.format("CQI 0: %d\nCQI 1: %d\n\n",
+                                signal.CQI[0].getVal(type), signal.CQI[1].getVal(type));
+                }
+
+                if (signal.DLMCS[0].isSet() && signal.DLMCS[1].isSet() && signal.UPMCS.isSet())
+                {
+                     str.format("DL MCS 0: %d\nDL MCS 1: %d\nUP MCS: %d\n\n",
+                                signal.DLMCS[0].getVal(type), signal.DLMCS[1].getVal(type),
+                                signal.UPMCS.getVal(type));
+                }
+
+                if (signal.TXPWrPPUSCH.isSet() && signal.TXPWrPPUCCH.isSet() &&
+                    signal.TXPWrPSRS.isSet() && signal.TXPWrPPRACH.isSet())
+                {
+                    str.format("TX PPusch: %d\nTX PPucch: %d\nTX PSrs: %d\nTX PPrach: %d\n\n",
+                                signal.TXPWrPPUSCH.getVal(type), signal.TXPWrPPUCCH.getVal(type),
+                                signal.TXPWrPSRS.getVal(type), signal.TXPWrPPRACH.getVal(type));
+                }
+
                 if (signal.band != __XML_NUM_ERROR__ &&
                     signal.DLBW != __XML_NUM_ERROR__ &&
                     signal.UPBW != __XML_NUM_ERROR__)
@@ -1172,6 +1193,19 @@ bool showSignalStrength()
         signal.RSRQ.update(getXMLStr(response, "rsrq"));
         signal.RSSI.update(getXMLStr(response, "rssi"));
         signal.SINR.update(getXMLStr(response, "sinr"));
+
+        signal.CQI[0].update(getXMLStr(response, "cqi0"));
+        signal.CQI[1].update(getXMLStr(response, "cqi1"));
+
+        signal.DLMCS[0].update(getXMLSubValStr(response, "dl_mcs", "mcsDownCarrier1Code0:"));
+        signal.DLMCS[1].update(getXMLSubValStr(response, "dl_mcs", "mcsDownCarrier1Code1:"));
+        signal.UPMCS.update(getXMLSubValStr(response, "ul_mcs", "mcsUpCarrier1:"));
+
+        signal.TXPWrPPUSCH.update(getXMLSubValStr(response, "txpower", "PPusch:"));
+        signal.TXPWrPPUCCH.update(getXMLSubValStr(response, "txpower", "PPucch:"));
+        signal.TXPWrPSRS.update(getXMLSubValStr(response, "txpower", "PSrs:"));
+        signal.TXPWrPPRACH.update(getXMLSubValStr(response, "txpower", "PPrach:"));
+
         signal.band = getXMLNum(response, "band");
         signal.cell = getXMLNum(response, "cell_id");
         signal.DLBW = getXMLNum(response, "dlbandwidth");

@@ -197,8 +197,16 @@ struct SignalValue
 
     void update(const char *val)
     {
+        if (!strcmp(val, __XML_ERROR__)) return;
         if (!strncmp(val, ">=", 2)) val += 2;
-        update((T)strtoull(val, nullptr, 10));
+
+        if (strchr(val, '.')) update((T)strtod(val, nullptr));
+        else update((T)strtoull(val, nullptr, 10));
+    }
+
+    void update(const std::string &val)
+    {
+        update(val.c_str());
     }
 
     void reset()
@@ -284,6 +292,15 @@ struct Signal
     SignalValue<> RSRQ;
     SignalValue<> RSSI;
     SignalValue<> SINR;
+
+    SignalValue<> CQI[2];
+    SignalValue<> DLMCS[2];
+    SignalValue<> UPMCS;
+
+    SignalValue<> TXPWrPPUSCH;
+    SignalValue<> TXPWrPPUCCH;
+    SignalValue<> TXPWrPSRS;
+    SignalValue<> TXPWrPPRACH;
 
     XMLNumType band;
     XMLNumType cell;

@@ -275,6 +275,28 @@ const char *getXMLStr(rapidxml::xml_node<> *node, const char *nodeName)
     return __XML_ERROR__;
 }
 
+std::string getXMLSubValStr(rapidxml::xml_node<> *node, const char *nodeName, const char *subValName)
+{
+    const char *xmlStr = getXMLStr(node, nodeName);
+
+    if (!strcmp(xmlStr, __XML_ERROR__))
+        return __XML_ERROR__;
+
+    std::vector<std::string> subVals;
+    const size_t subValNameLength = strlen(subValName);
+
+    if (!splitStr(subVals, xmlStr, " ", false))
+        return __XML_ERROR__;
+
+    for (const std::string &subVal : subVals)
+    {
+        if (!subVal.compare(0, subValNameLength, subValName))
+            return subVal.c_str() + subValNameLength;
+    }
+
+    return __XML_ERROR__;
+}
+
 XMLNumType getXMLNum(rapidxml::xml_node<> *node, const char *nodeName)
 {
     auto *result = node->first_node(nodeName);
