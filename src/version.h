@@ -18,4 +18,4 @@
 
 #define TOOLNAME "Huawei Band Tool"
 #define CODENAME "Meow, I am a cat! Edition"
-#define VERSION "0.2.6-Alpha"
+#define VERSION "0.2.7-Alpha"

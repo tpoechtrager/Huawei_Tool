@@ -500,6 +500,7 @@ cxx14_constexpr const char *getNetworkTypeExStr(int networkTypeEx)
         case 1:    return "GSM";
         case 2:    return "GPRS";
         case 3:    return "EDGE";
+        case 20:   return "LTE NR";
         case 41:   return "UMTS";
         case 42:   return "HSDPA";
         case 43:   return "HSUPA";
@@ -508,6 +509,7 @@ cxx14_constexpr const char *getNetworkTypeExStr(int networkTypeEx)
         case 46:   return "DC-HSPA+";
         case 101:  return "LTE";
         case 1011: return "LTE+";
+        case 111:  return "NR";
         default:   return "??";
     }
 }
