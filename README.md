@@ -6,7 +6,7 @@ German: https://www.lteforum.at/mobilfunk/huawei-band-tool.7970
 
 ### Releases: ###
 
-https://drive.google.com/open?id=0B2hB5md6Sd_vVWlHekl2MDI4NkE
+https://drive.google.com/drive/folders/0B2hB5md6Sd_vVWlHekl2MDI4NkE?resourcekey=0-P_-NrJbAGPsIKLAtEcgUTw&usp=sharing
 
 ### Supported Devices: ###
 
